@@ -348,6 +348,12 @@ export default function MemoryGame() {
 			{/* ACTIVE GAME */}
 			{gameStarted && (
 				<>
+					<button
+						onClick={resetFull}
+						className="px-4 py-2 bg-blue-300 w-full mx-auto text-white rounded mt-3 disabled:bg-gray-600"
+					>
+						Нова Гра
+					</button>
 					<div
 						className="flex items-center gap-3 p-3 rounded shadow text-white"
 						style={{ backgroundColor: players[currentPlayer].color }}
@@ -366,13 +372,6 @@ export default function MemoryGame() {
 								Ходи: {players[currentPlayer].moves} | Пари: {players[currentPlayer].score}
 							</div>
 						</div>
-
-						<button
-							onClick={resetFull}
-							className="ml-auto px-3 py-1 bg-black/40 rounded shadow"
-						>
-							Скинути гру
-						</button>
 					</div>
 
 					{/* GRID */}
