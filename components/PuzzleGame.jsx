@@ -227,8 +227,8 @@ export default function PuzzleGame() {
 			{completed && (
 				<div className="fixed inset-0 z-[80] flex justify-center items-end pb-24 pointer-events-none">
 					<button
-						onClick={() => shufflePuzzle(image)}
-						className="px-6 py-3 rounded text-white font-bold shadow-lg animate-pulse pointer-events-auto bg-green-600"
+						onClick={() => location.reload()}
+						className="px-10 py-5 rounded text-white font-bold shadow-lg animate-pulse pointer-events-auto bg-green-600"
 					>
 						🔄 Нова гра
 					</button>
