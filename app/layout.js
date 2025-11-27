@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Memory Game",
-  description: "Kids Memory Game",
+  title: "Сімейна Гра",
+  description: "Сімейна Гра",
 };
 
 export default function RootLayout({ children }) {
