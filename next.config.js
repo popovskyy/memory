@@ -2,7 +2,7 @@
 const nextConfig = {
 	output: 'export',
 	assetPrefix: './',
-	basePath: '/memory',
+	// basePath: '/memory',
 };
 
 export default nextConfig;

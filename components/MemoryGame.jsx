@@ -314,7 +314,7 @@ export default function MemoryGame() {
 				<div className="p-4 bg-gray-800 rounded text-white space-y-3">
 					<div className="font-bold text-lg">Вибери гравців:</div>
 
-					<div className="grid grid-cols-2 gap-3">
+					<div className="grid grid-cols-1 gap-3 md:grid-cols-2">
 						{playersData.map((p) => (
 							<label
 								key={p.id}
@@ -376,7 +376,7 @@ export default function MemoryGame() {
 					</div>
 
 					{/* GRID */}
-					<div className="grid grid-cols-3 gap-3 lg:grid-cols-4">
+					<div className="grid grid-cols-4 gap-3 lg:grid-cols-4">
 						{cards.map((card, i) => {
 							const show =
 								initialPreview || opened.includes(i) || matched.includes(i);
