@@ -14,6 +14,7 @@ const pawsImages = [
 	"/images/paws/sky.jpg",
 	"/images/paws/taksa.jpg",
 	"/images/paws/zooma.jpg",
+	"/images/paws/elsa.jpg",
 ];
 
 // ==========================================================================================
