@@ -8,6 +8,12 @@ import { useState, useEffect, useRef } from "react";
 const pawsImages = [
 	"/images/paws/builder.jpg",
 	"/images/paws/chase.jpg",
+	"/images/paws/everest.jpg",
+	"/images/paws/marshal.jpg",
+	"/images/paws/rocky.jpg",
+	"/images/paws/sky.jpg",
+	"/images/paws/taksa.jpg",
+	"/images/paws/zooma.jpg",
 ];
 
 // ==========================================================================================
