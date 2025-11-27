@@ -13,6 +13,9 @@ const puzzleImages = [
 	"/images/puzzles/puzzle-07.jpg",
 	"/images/puzzles/puzzle-08.jpg",
 	"/images/puzzles/puzzle-09.jpg",
+	"/images/puzzles/puzzle-10.jpg",
+	"/images/puzzles/puzzle-11.jpg",
+	"/images/puzzles/puzzle-12.jpg",
 ];
 
 const winSounds = [
@@ -162,7 +165,7 @@ export default function PuzzleGame() {
 					<img
 						src={image}
 						className="
-              w-48 h-48 rounded-xl border-4 shadow-xl object-cover
+              w-100 h-100 rounded-xl border-4 shadow-xl object-cover
               animate-[dance_1.2s_ease-in-out_infinite]
             "
 						style={{ borderColor: "#ffdd55" }}
