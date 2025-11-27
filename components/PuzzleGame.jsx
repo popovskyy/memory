@@ -16,6 +16,7 @@ const puzzleImages = [
 	"/images/puzzles/puzzle-10.jpg",
 	"/images/puzzles/puzzle-11.jpg",
 	"/images/puzzles/puzzle-12.jpg",
+	"/images/puzzles/puzzle-13.jpg",
 ];
 
 const winSounds = [
@@ -26,7 +27,7 @@ const winSounds = [
 ];
 
 export default function PuzzleGame() {
-	const [image, setImage] = useState(null);
+	const [image, setImage] = useState(puzzleImages[0]);
 	const [size] = useState(3);
 	const [shuffled, setShuffled] = useState([]);
 	const [completed, setCompleted] = useState(false);
@@ -35,12 +36,13 @@ export default function PuzzleGame() {
 	const canvasRef = useRef(null);
 	const fireworksInterval = useRef(null);
 
-	const startGame = () => {
+	// ------------------------
+	// START GAME OR CHANGE PUZZLE
+	// ------------------------
+	const shufflePuzzle = (imgToUse = image) => {
 		stopEffects();
 
-		const randomImg =
-			puzzleImages[Math.floor(Math.random() * puzzleImages.length)];
-		setImage(randomImg);
+		setImage(imgToUse);
 
 		const total = size * size;
 		const arr = [...Array(total)].map((_, i) => i);
@@ -54,6 +56,13 @@ export default function PuzzleGame() {
 		setCompleted(false);
 	};
 
+	useEffect(() => {
+		shufflePuzzle();
+	}, []);
+
+	// ------------------------
+	// STOP EFFECTS
+	// ------------------------
 	const stopEffects = () => {
 		if (audioRef.current) {
 			audioRef.current.pause();
@@ -64,29 +73,29 @@ export default function PuzzleGame() {
 		}
 	};
 
-	useEffect(() => {
-		startGame();
-	}, []);
-
-	// CHECK PUZZLE COMPLETE
+	// ------------------------
+	// CHECK IF COMPLETED
+	// ------------------------
 	useEffect(() => {
 		if (shuffled.length > 0 && shuffled.every((v, i) => v === i)) {
 			setCompleted(true);
 		}
 	}, [shuffled]);
 
-	// RUN EFFECTS WHEN PUZZLE COMPLETED
+	// ------------------------
+	// RUN EFFECTS ON COMPLETE
+	// ------------------------
 	useEffect(() => {
 		if (!completed) return;
 
-		// ===== AUDIO =====
+		// AUDIO
 		const sound = winSounds[Math.floor(Math.random() * winSounds.length)];
 		const audio = new Audio(sound);
 		audio.loop = true;
 		audioRef.current = audio;
 		audio.play().catch(() => {});
 
-		// ===== FIREWORKS =====
+		// FIREWORKS
 		const canvas = canvasRef.current;
 		const ctx = canvas.getContext("2d");
 
@@ -150,38 +159,51 @@ export default function PuzzleGame() {
 		return () => stopEffects();
 	}, [completed]);
 
+	// ------------------------
+	// RENDER
+	// ------------------------
 	return (
 		<div className="relative space-y-4">
 
-			{/* CANVAS FOR FIREWORKS */}
+			{/* FIREWORKS CANVAS */}
 			<canvas
 				ref={canvasRef}
 				className="pointer-events-none fixed inset-0 z-40"
 			/>
 
-			{/* CENTER IMAGE ANIMATION */}
+			{/* PREVIEW BAR */}
+			<div className="flex gap-3 overflow-x-auto py-2 px-1">
+				{puzzleImages.map((src) => (
+					<button
+						key={src}
+						onClick={() => shufflePuzzle(src)}
+						className={`relative flex-shrink-0 border-2 rounded-lg overflow-hidden w-20 h-20 ${
+							image === src
+								? "border-blue-500 scale-110"
+								: "border-gray-400 opacity-70"
+						} transition-all`}
+					>
+						<img
+							src={src}
+							className="object-cover w-full h-full"
+						/>
+					</button>
+				))}
+			</div>
+
+			{/* CENTER IMAGE WHEN COMPLETED */}
 			{completed && (
 				<div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none">
 					<img
 						src={image}
 						className="
-              w-100 h-100 rounded-xl border-4 shadow-xl object-cover
+              w-80 h-80 rounded-xl border-4 shadow-xl object-cover
               animate-[dance_1.2s_ease-in-out_infinite]
             "
 						style={{ borderColor: "#ffdd55" }}
 					/>
 				</div>
 			)}
-
-			<style>{`
-        @keyframes dance {
-          0% { transform: scale(1) rotate(0deg); }
-          25% { transform: scale(1.15) rotate(6deg); }
-          50% { transform: scale(1.05) rotate(-6deg); }
-          75% { transform: scale(1.2) rotate(4deg); }
-          100% { transform: scale(1) rotate(0deg); }
-        }
-      `}</style>
 
 			{/* PUZZLE */}
 			<PuzzleBoard
@@ -191,33 +213,26 @@ export default function PuzzleGame() {
 				setShuffled={setShuffled}
 			/>
 
-			{/* COMPLETED TEXT */}
-			{completed && (
-				<div className="mt-4 p-4 bg-green-600 text-white rounded text-center font-bold text-lg relative z-[70]">
-					🎉 Пазл зібрано!
-				</div>
+			{/* NORMAL BUTTON */}
+			{!completed && (
+				<button
+					onClick={() => shufflePuzzle(image)}
+					className="px-4 py-2 bg-blue-600 text-white rounded w-full"
+				>
+					🔄 Перемішати
+				</button>
 			)}
 
-			{/* FIXED BUTTON */}
+			{/* BUTTON WHEN COMPLETED */}
 			{completed && (
 				<div className="fixed inset-0 z-[80] flex justify-center items-end pb-24 pointer-events-none">
 					<button
-						onClick={()=> location.reload()}
+						onClick={() => shufflePuzzle(image)}
 						className="px-6 py-3 rounded text-white font-bold shadow-lg animate-pulse pointer-events-auto bg-green-600"
 					>
 						🔄 Нова гра
 					</button>
 				</div>
-			)}
-
-			{/* NORMAL BUTTON */}
-			{!completed && (
-				<button
-					onClick={()=> location.reload()}
-					className="px-4 py-2 bg-blue-600 text-white rounded w-full"
-				>
-					🔄 Нова гра
-				</button>
 			)}
 		</div>
 	);
