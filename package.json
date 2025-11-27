@@ -7,10 +7,8 @@
     "build": "next build",
     "deploy": "gh-pages -d out"
   },
-
   "dependencies": {
     "next": "16.0.3",
-    "next-export-optimize-images": "^4.7.0",
     "react": "19.2.0",
     "react-dom": "19.2.0"
   },
