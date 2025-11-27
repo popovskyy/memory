@@ -1,29 +1,35 @@
 "use client";
 
+import { useState } from "react";
 import PuzzlePiece from "./PuzzlePiece";
 
 export default function PuzzleBoard({ image, size, shuffled, setShuffled }) {
-	const tileSize = 100 / size; // % per piece
+	const [activeIndex, setActiveIndex] = useState(null);
 
-	const onDragStart = (e, index) => {
-		e.dataTransfer.setData("fromIndex", index);
-	};
+	const tileClick = (index) => {
+		// якщо нічого не вибрано → вибираємо
+		if (activeIndex === null) {
+			setActiveIndex(index);
+			return;
+		}
 
-	const onDrop = (e, toIndex) => {
-		const fromIndex = Number(e.dataTransfer.getData("fromIndex"));
-		if (fromIndex === toIndex) return;
+		// якщо натиснули на той же → скидаємо
+		if (activeIndex === index) {
+			setActiveIndex(null);
+			return;
+		}
 
+		// міняємо місцями
 		const newArr = [...shuffled];
-		[newArr[fromIndex], newArr[toIndex]] = [newArr[toIndex], newArr[fromIndex]];
+		[newArr[activeIndex], newArr[index]] = [newArr[index], newArr[activeIndex]];
 
 		setShuffled(newArr);
+		setActiveIndex(null);
 	};
-
-	const allowDrop = (e) => e.preventDefault();
 
 	return (
 		<div
-			className="grid bg-gray-300 rounded overflow-hidden"
+			className="grid rounded overflow-hidden p-10"
 			style={{
 				gridTemplateColumns: `repeat(${size}, 1fr)`,
 				width: "100%",
@@ -33,17 +39,13 @@ export default function PuzzleBoard({ image, size, shuffled, setShuffled }) {
 			{shuffled.map((pos, index) => (
 				<div
 					key={index}
-					draggable
-					onDragStart={(e) => onDragStart(e, index)}
-					onDragOver={allowDrop}
-					onDrop={(e) => onDrop(e, index)}
+					onClick={() => tileClick(index)}
+					className={`
+            transition-transform duration-200
+            ${activeIndex === index ? "scale-105 ring-4 ring-blue-400 z-10" : ""}
+          `}
 				>
-					<PuzzlePiece
-						image={image}
-						pos={pos}
-						size={size}
-						tileSize={tileSize}
-					/>
+					<PuzzlePiece image={image} pos={pos} size={size} />
 				</div>
 			))}
 		</div>
