@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import { useState, useEffect, useRef } from "react";
 
@@ -49,6 +49,13 @@ const playersData = [
 		winSound: "/sounds/roman.mp3",
 		color: "#3b82f6",
 	},
+	{
+		id: 5,
+		name: "Баба Лена",
+		img: "/images/players/baba-lena.jpg",
+		winSound: "/sounds/verka.mp3",
+		color: "#c20d2e",
+	},
 ];
 
 function shuffle(arr) {
@@ -69,8 +76,18 @@ export default function MemoryGame() {
 	const [initialPreview, setInitialPreview] = useState(true);
 
 	const audioRef = useRef(null);
+	const matchAudioRef = useRef(null);
 	const canvasRef = useRef(null);
 	let fireworksInterval = useRef(null);
+
+	// ==========================================================================================
+	// INIT
+	// ==========================================================================================
+	useEffect(() => {
+		// init match sound
+		matchAudioRef.current = new Audio("/sounds/match.mp3");
+		matchAudioRef.current.volume = 0.7;
+	}, []);
 
 	// SELECT PLAYERS
 	const togglePlayer = (id) => {
@@ -134,6 +151,12 @@ export default function MemoryGame() {
 			);
 
 			if (cards[a].src === cards[b].src) {
+				// 🔔 MATCH SOUND
+				if (matchAudioRef.current) {
+					matchAudioRef.current.currentTime = 0;
+					matchAudioRef.current.play().catch(() => {});
+				}
+
 				setTimeout(() => {
 					setMatched((prev) => [...prev, a, b]);
 
@@ -144,7 +167,7 @@ export default function MemoryGame() {
 					);
 
 					setOpened([]);
-				}, 400);
+				}, 300);
 			} else {
 				setTimeout(() => {
 					setOpened([]);
@@ -280,35 +303,30 @@ export default function MemoryGame() {
 	return (
 		<div className="space-y-4 relative">
 
-			{/* CANVAS */}
-			<canvas
-				ref={canvasRef}
-				className="pointer-events-none fixed inset-0 z-40"
-			/>
+			<canvas ref={canvasRef} className="pointer-events-none fixed inset-0 z-40" />
 
-			{/* WINNER PHOTO ANIMATION */}
 			{winner && (
 				<div className="fixed inset-0 z-[60] flex items-center justify-center pointer-events-none">
 					<img
 						src={winner.img}
 						className="
-							w-40 h-40 rounded-full border-4 shadow-xl
-							animate-[dance_1.2s_ease-in-out_infinite]
-						"
+              w-40 h-40 rounded-full border-4 shadow-xl
+              animate-[dance_1.2s_ease-in-out_infinite]
+            "
 						style={{ borderColor: winner.color }}
 					/>
 				</div>
 			)}
 
 			<style>{`
-				@keyframes dance {
-					0% { transform: scale(1) rotate(0deg); }
-					25% { transform: scale(1.15) rotate(6deg); }
-					50% { transform: scale(1.05) rotate(-6deg); }
-					75% { transform: scale(1.2) rotate(4deg); }
-					100% { transform: scale(1) rotate(0deg); }
-				}
-			`}</style>
+        @keyframes dance {
+          0% { transform: scale(1) rotate(0deg); }
+          25% { transform: scale(1.15) rotate(6deg); }
+          50% { transform: scale(1.05) rotate(-6deg); }
+          75% { transform: scale(1.2) rotate(4deg); }
+          100% { transform: scale(1) rotate(0deg); }
+        }
+      `}</style>
 
 			{/* SELECT SCREEN */}
 			{!gameStarted && (
@@ -355,6 +373,7 @@ export default function MemoryGame() {
 					>
 						Нова Гра
 					</button>
+
 					<div
 						className="flex items-center gap-3 p-3 rounded shadow text-white"
 						style={{ backgroundColor: players[currentPlayer].color }}
@@ -407,11 +426,10 @@ export default function MemoryGame() {
 						</div>
 					)}
 
-					{/* 🔄 START NEW GAME BUTTON – FIXED AND ALWAYS VISIBLE */}
 					{winner && (
 						<div className="fixed inset-0 z-[80] flex justify-center items-end pb-24 pointer-events-none">
 							<button
-								onClick={()=> location.reload()}
+								onClick={() => location.reload()}
 								className="px-6 py-3 rounded text-white font-bold shadow-lg animate-pulse pointer-events-auto"
 								style={{ backgroundColor: winner.color }}
 							>
