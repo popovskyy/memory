@@ -24,6 +24,13 @@ export default function HomePage() {
 				>
 					🧩 Puzzle Game
 				</Link>
+				<Link
+					href="/light"
+					className="block w-full text-center px-6 py-4 bg-yellow-500 rounded-lg font-bold text-lg hover:bg-yellow-600 transition"
+				>
+					💡 Світло
+				</Link>
+
 			</div>
 		</main>
 	);
