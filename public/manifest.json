@@ -2,7 +2,7 @@
   "name": "Світло Щасливе (5.1)",
   "short_name": "Світло",
   "description": "Графік світла — Щасливе (5.1)",
-  "start_url": "/light",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

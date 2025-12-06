@@ -46,13 +46,25 @@ export default function LightPage() {
 
 	const subscribeToPush = async () => {
 		try {
+			console.log("Requesting permission...");
+			const permission = await Notification.requestPermission();
+			console.log("Permission:", permission);
+
+			if (permission !== "granted") {
+				throw new Error("Permission was not granted");
+			}
+
 			const reg = await navigator.serviceWorker.ready;
+			console.log("ServiceWorker ready ✓");
+
 			const sub = await reg.pushManager.subscribe({
 				userVisibleOnly: true,
 				applicationServerKey: urlBase64ToUint8Array(
 					process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
 				),
 			});
+
+			console.log("Sub:", sub);
 
 			await fetch("/api/subscribe", {
 				method: "POST",
@@ -62,10 +74,11 @@ export default function LightPage() {
 
 			alert("🔔 Сповіщення увімкнено!");
 		} catch (err) {
-			console.error(err);
-			alert("❌ Не вдалося активувати пуші");
+			console.error("PUSH ERROR ➜", err);
+			alert("❌ Push ERROR: " + err.message);
 		}
 	};
+
 
 	const sendTestPush = async () => {
 		await fetch("/api/push-test", { method: "POST" });
