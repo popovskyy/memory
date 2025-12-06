@@ -1,8 +1,22 @@
 "use client";
-
+import { useEffect } from "react";
 import Link from "next/link";
 
 export default function HomePage() {
+
+	useEffect(() => {
+		// preload data silently
+		fetch("/api/disconnections")
+			.then(r => r.json())
+			.then(json => {
+				if (json.data) {
+					const tableRows = json.data.slice(3);
+					localStorage.setItem("light-data", JSON.stringify(tableRows));
+				}
+			})
+			.catch(() => {});
+	}, []);
+
 	return (
 		<main className="min-h-screen flex items-center justify-center p-6 bg-gray-900">
 			<div className="max-w-md w-full bg-gray-800 text-white p-8 rounded-xl space-y-6 shadow-xl">
@@ -24,6 +38,7 @@ export default function HomePage() {
 				>
 					🧩 Puzzle Game
 				</Link>
+
 				<Link
 					href="/light"
 					className="block w-full text-center px-6 py-4 bg-yellow-500 rounded-lg font-bold text-lg hover:bg-yellow-600 transition"
