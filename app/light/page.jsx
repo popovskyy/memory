@@ -8,11 +8,16 @@ export default function LightPage() {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(null);
 
-	const QUEUE_INDEX = 9; // 5.1 — індекс в таблиці
+	const QUEUE_INDEX = 9; // 5.1
 	const [isOffNow, setIsOffNow] = useState(false);
 	const [nextEventText, setNextEventText] = useState("");
+	const [todayIntervals, setTodayIntervals] = useState([]);
 
-	// ================= LOAD DATA =================
+	const parseIntervals = (raw) => {
+		if (!raw) return [];
+		return raw.match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/g) || [];
+	};
+
 	const load = async () => {
 		try {
 			const res = await fetch("/api/disconnections");
@@ -23,9 +28,7 @@ export default function LightPage() {
 				setRows(tableRows);
 				localStorage.setItem("light-data", JSON.stringify(tableRows));
 				calcStatus(tableRows);
-			} else {
-				setError(json.error);
-			}
+			} else setError(json.error);
 		} catch {
 			setError("Помилка запиту");
 		}
@@ -33,7 +36,6 @@ export default function LightPage() {
 	};
 
 	useEffect(() => {
-		// ✨ Спершу показуємо кешовані дані
 		const cached = localStorage.getItem("light-data");
 		if (cached) {
 			const parsed = JSON.parse(cached);
@@ -41,91 +43,38 @@ export default function LightPage() {
 			calcStatus(parsed);
 			setLoading(false);
 		}
-
-		// 🔄 Паралельно оновлюємо з бекенду
 		load();
 	}, []);
-	// =================================================
 
-
-	// ================= PUSH API =================
-	const urlBase64ToUint8Array = (base64String) => {
-		const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-		const base64 = (base64String + padding)
-			.replace(/-/g, "+")
-			.replace(/_/g, "/");
-		const rawData = window.atob(base64);
-		return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
-	};
-
-	const subscribeToPush = async () => {
-		try {
-			const permission = await Notification.requestPermission();
-			if (permission !== "granted") throw new Error("Permission denied");
-
-			const reg = await navigator.serviceWorker.ready;
-			const sub = await reg.pushManager.subscribe({
-				userVisibleOnly: true,
-				applicationServerKey: urlBase64ToUint8Array(
-					process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY
-				),
-			});
-
-			await fetch("/api/subscribe", {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify(sub),
-			});
-
-			alert("🔔 Сповіщення увімкнено!");
-		} catch (err) {
-			alert("❌ Push ERROR: " + err.message);
-		}
-	};
-
-	const sendTestPush = async () => {
-		await fetch("/api/push-test", { method: "POST" });
-		alert("📨 Якщо додаток встановлений — сповіщення має прийти!");
-	};
-	// =================================================
-
-
-	// ========= Визначення чи є світло =========
 	const calcStatus = (dataRows) => {
 		const now = new Date();
 		const todayStr = now.toLocaleDateString("uk-UA").replace(/\./g, ".");
-
 		const todayRow = dataRows.find((r) => r[0] === todayStr);
-		if (!todayRow) {
-			setIsOffNow(false);
-			setNextEventText("Очікуємо актуальний графік");
-			return;
-		}
+		if (!todayRow) return;
 
-		const ranges = todayRow[QUEUE_INDEX];
-		if (ranges.includes("Очікується")) {
-			setIsOffNow(false);
-			setNextEventText("Очікується оновлення графіка");
-			return;
-		}
+		const intervals = parseIntervals(todayRow[QUEUE_INDEX]);
+		setTodayIntervals(intervals);
 
-		const intervals = ranges.split(",").map((v) => v.trim());
 		let offNow = false;
 		let nextChangeText = "📅 Дані уточнюються";
 
 		for (let interval of intervals) {
-			const [startStr, endStr] = interval.split("-").map((s) => s.trim());
+			const [startStr, endStr] = interval.split("-").map(s => s.trim());
+			const nowD = new Date();
+			const start = new Date(nowD);
+			const end = new Date(nowD);
 			const [sh, sm] = startStr.split(":").map(Number);
 			const [eh, em] = endStr.split(":").map(Number);
 
-			const start = new Date(now); start.setHours(sh, sm, 0, 0);
-			const end = new Date(now); end.setHours(eh, em, 0, 0);
+			start.setHours(sh, sm, 0, 0);
+			end.setHours(eh, em, 0, 0);
 
-			if (now >= start && now <= end) {
+			if (nowD >= start && nowD <= end) {
 				offNow = true;
-				nextChangeText = `🔌 Світло повернеться через ${formatDiff(end - now)}`;
-			} else if (now < start && !offNow) {
-				nextChangeText = `⚡ Вимкнуть через ${formatDiff(start - now)}`;
+				nextChangeText = `🔌 Світло повернеться через ${formatDiff(end - nowD)}`;
+				break;
+			} else if (nowD < start && !offNow) {
+				nextChangeText = `⚡ Вимкнуть через ${formatDiff(start - nowD)}`;
 				break;
 			}
 		}
@@ -140,63 +89,70 @@ export default function LightPage() {
 		const m = mins % 60;
 		return `${h > 0 ? h + " год " : ""}${m} хв`;
 	};
-	// =================================================
 
 	if (!rows.length && loading)
 		return <p className="text-center text-gray-300 p-6">Завантаження…</p>;
 
 	const todayDate = new Date().toLocaleDateString("uk-UA").replace(/\./g, ".");
+	const todayIndex = rows.findIndex((r) => r[0] === todayDate);
+	const futureRows = rows.slice(todayIndex + 1);
 
 	return (
 		<main className="min-h-screen bg-gray-900 text-white p-6 flex justify-center">
 			<div className="max-w-[600px] w-full space-y-6">
 
-				<Link
-					href="/"
-					className="inline-flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition border border-gray-600"
-				>
+				<Link href="/" className="inline-flex items-center gap-2 bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg transition border border-gray-600">
 					⬅ Назад
 				</Link>
 
-				<div className={`text-center text-lg font-bold p-3 rounded-lg border shadow 
+				<div className={`text-center text-lg font-bold p-3 rounded-lg border shadow
 					${isOffNow ? "bg-red-700 border-red-500" : "bg-green-700 border-green-500"}`}>
 					{isOffNow ? "🔴 Світло ВИМКНЕНО" : "🟢 Світло Є"}
 				</div>
 
-				<button onClick={subscribeToPush}
-				        className="w-full bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded-lg font-semibold">
-					🔔 Увімкнути сповіщення
-				</button>
-
-				<button onClick={sendTestPush}
-				        className="w-full bg-purple-500 hover:bg-purple-600 px-4 py-2 rounded-lg font-semibold">
-					📢 Тест сповіщення
-				</button>
-
 				<p className="text-center text-gray-300">{nextEventText}</p>
 
-				<h1 className="text-xl mt-6 font-bold text-center">
+				<h1 className="text-xl font-bold text-center">
 					💡 Відключення — Щасливе <span className="text-yellow-300">(5.1)</span>
 				</h1>
 
-				<div className="space-y-4">
-					{rows.slice(1).map((row, i) => {
-						const isToday = row[0] === todayDate;
-						return (
-							<div key={i}
-							     className={`p-4 rounded-lg shadow border
-							    ${isToday ? "bg-gray-700 border-yellow-400" : "bg-gray-800 border-gray-700"}`}
-							>
-								<p className="font-semibold text-center mb-2">
-									📅 {row[0]} {isToday && "🔥 (сьогодні)"}
-								</p>
-								<p className="text-center bg-gray-900 py-2 rounded-md">
-									{row[QUEUE_INDEX]}
-								</p>
-							</div>
-						);
-					})}
-				</div>
+				{/* 🌟 Сьогодні */}
+				<h2 className="text-lg font-bold mb-2">🔥 Сьогодні</h2>
+				{todayIntervals.map((interval, i) => (
+					<div key={i} className="bg-gray-800 border border-gray-600 p-3 text-center rounded-md text-lg font-semibold">
+						⚡ {interval}
+					</div>
+				))}
+
+				{/* 📅 Майбутні дні */}
+				{futureRows.length > 0 && (
+					<>
+						<h2 className="text-lg font-bold mt-6 mb-2">📅 Наступні дні</h2>
+						<div className="space-y-3">
+							{futureRows.map((row, i) => {
+								const raw = row[QUEUE_INDEX];
+								const intervals = parseIntervals(raw);
+								const isWaiting = raw.includes("Очікується");
+
+								return (
+									<div key={i} className="bg-gray-800 border border-gray-700 p-3 rounded-lg">
+										<p className="font-bold mb-2 text-center">{row[0]}</p>
+
+										{isWaiting ? (
+											<p className="text-center text-yellow-300">⏳ Очікується</p>
+										) : (
+											intervals.map((intv, idx) => (
+												<p key={idx} className="text-center bg-gray-900 rounded-md py-2 my-1">
+													⚡ {intv}
+												</p>
+											))
+										)}
+									</div>
+								);
+							})}
+						</div>
+					</>
+				)}
 
 			</div>
 		</main>
