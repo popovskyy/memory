@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import webpush from "web-push";
-import { kv } from "@vercel/kv"; // 👇 Додаємо Redis
+import Redis from "ioredis";
 
 webpush.setVapidDetails(
 	"mailto:popovskyy@gmail.com",
@@ -11,10 +11,11 @@ webpush.setVapidDetails(
 	process.env.VAPID_PRIVATE_KEY
 );
 
+const redis = new Redis(process.env.REDIS_URL);
+
 export async function POST() {
 	try {
-		// 1. Беремо підписників з Redis (а не з файлу)
-		const rawSubs = await kv.smembers("subs");
+		const rawSubs = await redis.smembers("subs");
 
 		if (!rawSubs || rawSubs.length === 0) {
 			return NextResponse.json({ error: "No subscribers in DB" }, { status: 400 });
@@ -29,7 +30,6 @@ export async function POST() {
 
 		let successCount = 0;
 
-		// 2. Відправляємо всім
 		await Promise.all(
 			subs.map(async (sub) => {
 				try {
@@ -37,9 +37,8 @@ export async function POST() {
 					successCount++;
 				} catch (err) {
 					console.error("Push fail:", err);
-					// Тут теж можна додати видалення мертвих токенів, як в основному файлі
 					if (err.statusCode === 410 || err.statusCode === 404) {
-						await kv.srem("subs", JSON.stringify(sub));
+						await redis.srem("subs", JSON.stringify(sub));
 					}
 				}
 			})

@@ -1,14 +1,17 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { kv } from "@vercel/kv";
+import Redis from "ioredis";
+
+// Підключаємось до твого Redis
+const redis = new Redis(process.env.REDIS_URL);
 
 export async function POST(request) {
 	try {
 		const sub = await request.json();
 
-		// Зберігаємо підписку в Redis (множина "subs", щоб не було дублікатів)
-		await kv.sadd("subs", JSON.stringify(sub));
+		// Зберігаємо підписку в Redis (множина "subs")
+		await redis.sadd("subs", JSON.stringify(sub));
 
 		console.log("✅ New subscriber saved to Redis");
 		return NextResponse.json({ ok: true });

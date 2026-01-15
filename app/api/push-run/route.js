@@ -1,9 +1,9 @@
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic"; // Щоб Vercel не кешував результат
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import webpush from "web-push";
-import { kv } from "@vercel/kv";
+import Redis from "ioredis";
 
 // Налаштування WebPush
 webpush.setVapidDetails(
@@ -12,27 +12,29 @@ webpush.setVapidDetails(
 	process.env.VAPID_PRIVATE_KEY
 );
 
+// Підключення до Redis
+const redis = new Redis(process.env.REDIS_URL);
+
 const QUEUE_INDEX = 9; // Твоя черга 5.1
 
 export async function GET() {
 	try {
-		// 1. Отримуємо підписників з Redis
-		const rawSubs = await kv.smembers("subs");
+		// 1. Отримуємо підписників
+		const rawSubs = await redis.smembers("subs");
 		if (!rawSubs || rawSubs.length === 0) {
 			return NextResponse.json({ msg: "No subscribers in DB" });
 		}
-		// Парсимо рядки назад в об'єкти
 		const subs = rawSubs.map((s) => (typeof s === "string" ? JSON.parse(s) : s));
 
-		// 2. Фетчимо графік з твого ж сайту
+		// 2. Фетчимо графік
 		const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-		if (!siteUrl) return NextResponse.json({ error: "NEXT_PUBLIC_SITE_URL is missing" });
+		if (!siteUrl) return NextResponse.json({ error: "NEXT_PUBLIC_SITE_URL missing" });
 
 		const res = await fetch(`${siteUrl}/api/disconnections`, { cache: "no-store" });
 		const json = await res.json();
 		const rows = json.data.slice(3);
 
-		// 3. Визначаємо час у КИЄВІ
+		// 3. Час у Києві
 		const now = new Date();
 		const kyivTimeStr = now.toLocaleString("en-US", { timeZone: "Europe/Kyiv" });
 		const kyivTime = new Date(kyivTimeStr);
@@ -52,40 +54,37 @@ export async function GET() {
 			const [sh, sm] = startStr.split(":").map(Number);
 			const [eh, em] = endStr.split(":").map(Number);
 
-			// Створюємо об'єкти дати для початку і кінця (Київський час)
 			const start = new Date(kyivTime); start.setHours(sh, sm, 0, 0);
 			const end = new Date(kyivTime); end.setHours(eh, em, 0, 0);
 
-			// Різниця в хвилинах
 			const diffStart = (start - kyivTime) / 1000 / 60;
 			const diffEnd = (end - kyivTime) / 1000 / 60;
 
-			// Унікальні ключі для Redis (щоб знати, що ми вже відправили цей пуш)
-			// Ключ живе 4 години (ex: 14400)
 			const idStart = `sent:${todayStr}:${startStr}:off`;
 			const idEnd = `sent:${todayStr}:${endStr}:on`;
 
-			// ⚡ ЛОГІКА: Якщо до вимкнення 0-35 хв
+			// ⚡ ЛОГІКА (0-35 хв до вимкнення)
 			if (diffStart > 0 && diffStart <= 35) {
-				const alreadySent = await kv.get(idStart);
+				const alreadySent = await redis.get(idStart);
 				if (!alreadySent) {
 					notifications.push({
 						title: "⚡ Скоро вимкнуть світло",
 						body: `Орієнтовно о ${startStr} (через ~${Math.round(diffStart)} хв)`,
 					});
-					await kv.set(idStart, "1", { ex: 14400 });
+					// Запам'ятати на 4 години (EX = seconds)
+					await redis.set(idStart, "1", "EX", 14400);
 				}
 			}
 
-			// 💡 ЛОГІКА: Якщо до увімкнення 0-15 хв
+			// 💡 ЛОГІКА (0-15 хв до увімкнення)
 			if (diffEnd > 0 && diffEnd <= 15) {
-				const alreadySent = await kv.get(idEnd);
+				const alreadySent = await redis.get(idEnd);
 				if (!alreadySent) {
 					notifications.push({
 						title: "💡 Скоро увімкнуть світло",
 						body: `Орієнтовно о ${endStr} (через ~${Math.round(diffEnd)} хв)`,
 					});
-					await kv.set(idEnd, "1", { ex: 14400 });
+					await redis.set(idEnd, "1", "EX", 14400);
 				}
 			}
 		}
@@ -94,7 +93,7 @@ export async function GET() {
 			return NextResponse.json({ msg: "No notifications needed right now" });
 		}
 
-		// 4. Відправка (з чисткою мертвих токенів)
+		// 4. Відправка
 		let sentCount = 0;
 		const sendPromises = notifications.flatMap(note =>
 			subs.map(async sub => {
@@ -102,10 +101,9 @@ export async function GET() {
 					await webpush.sendNotification(sub, JSON.stringify(note));
 					sentCount++;
 				} catch (err) {
-					// Якщо підписка неактивна (410 Gone або 404 Not Found) - видаляємо з бази
 					if (err.statusCode === 410 || err.statusCode === 404) {
 						console.log("🗑️ Removing dead subscription");
-						await kv.srem("subs", JSON.stringify(sub));
+						await redis.srem("subs", JSON.stringify(sub));
 					} else {
 						console.error("Push error:", err);
 					}
@@ -114,7 +112,6 @@ export async function GET() {
 		);
 
 		await Promise.all(sendPromises);
-
 		return NextResponse.json({ sent: sentCount, notifications });
 
 	} catch (e) {
