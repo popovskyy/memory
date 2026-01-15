@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import PushManager from "../../components/PushManager";
 
 // Компонент іконки для краси
 const IconZap = ({ className }) => (
@@ -147,6 +148,7 @@ export default function LightPage() {
 			</div>
 
 			<div className="relative z-10 max-w-md mx-auto p-4 flex flex-col gap-6">
+
 				{/* HEADER */}
 				<header className="flex items-center justify-between py-2">
 					<Link
@@ -291,7 +293,9 @@ export default function LightPage() {
 						</div>
 					</section>
 				)}
+
 			</div>
+			<PushManager/>
 		</main>
 	);
 }
