@@ -1,19 +1,19 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-
-let subscriptions = [];
+import { kv } from "@vercel/kv";
 
 export async function POST(request) {
-	const sub = await request.json();
-	subscriptions.push(sub);
+	try {
+		const sub = await request.json();
 
-	console.log("SUBSCRIPTIONS COUNT:", subscriptions.length);
+		// Зберігаємо підписку в Redis (множина "subs", щоб не було дублікатів)
+		await kv.sadd("subs", JSON.stringify(sub));
 
-	return NextResponse.json({ ok: true });
-}
-
-// Reserved — maybe later we will store to DB
-export function getSubscriptions() {
-	return subscriptions;
+		console.log("✅ New subscriber saved to Redis");
+		return NextResponse.json({ ok: true });
+	} catch (error) {
+		console.error("❌ Redis error:", error);
+		return NextResponse.json({ error: "Failed to save subscription" }, { status: 500 });
+	}
 }
