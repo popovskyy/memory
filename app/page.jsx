@@ -1,5 +1,3 @@
-"use client";
-
 import Link from "next/link";
 
 export default function HomePage() {
@@ -68,3 +66,4 @@ export default function HomePage() {
 		</main>
 	);
 }
+// force update design
