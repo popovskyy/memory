@@ -2,55 +2,97 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import webpush from "web-push";
 import Redis from "ioredis";
+import webpush from "web-push";
 
+// Налаштування Push (VAPID)
 webpush.setVapidDetails(
-	process.env.VAPID_SUBJECT || "mailto:test@example.com",
+	"mailto:your-email@example.com",
 	process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
 	process.env.VAPID_PRIVATE_KEY
 );
 
-// Створюємо інстанс Redis один раз
-const redis = new Redis(process.env.REDIS_URL);
-const QUEUE_INDEX = 9; // 5.1
+let redisInstance = null;
+function getRedis() {
+	if (!process.env.REDIS_URL) return null;
+	if (!redisInstance) {
+		redisInstance = new Redis(process.env.REDIS_URL);
+	}
+	return redisInstance;
+}
 
 export async function GET() {
-	console.log("🚀 CRON STARTED");
+	const redis = getRedis();
+	if (!redis) return NextResponse.json({ error: "No Redis" }, { status: 500 });
 
 	try {
-		// 1. Отримуємо підписників
-		const rawSubs = await redis.smembers("subs");
-		const subs = rawSubs.map((s) => (typeof s === "string" ? JSON.parse(s) : s));
+		// 1. Отримуємо свіжий графік (викликаємо власний API для оновлення кешу)
+		const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://memory-zeta-ruddy.vercel.app";
+		const res = await fetch(`${baseUrl}/api/disconnections`, { cache: 'no-store' });
+		const { data } = await res.json();
 
-		// 2. Фетчимо свіжі дані (ЦЕ НАЙДОВША ОПЕРАЦІЯ)
-		const siteUrl = process.env.NEXT_PUBLIC_SITE_URL;
-		const res = await fetch(`${siteUrl}/api/disconnections`, { cache: "no-store" });
-		const json = await res.json();
+		if (!data || data.length === 0) return NextResponse.json({ status: "No data to check" });
 
-		if (!json.data) {
-			console.error("❌ SCRAPER ERROR: No data");
-			return NextResponse.json({ error: "Scraper failed" });
+		// 2. Визначаємо поточний статус і час до наступної події
+		const now = new Date();
+		const todayStr = now.toLocaleDateString("uk-UA").replace(/\./g, ".");
+		const todayRow = data.find((r) => r[0] === todayStr);
+
+		if (!todayRow) return NextResponse.json({ status: "No schedule for today" });
+
+		const QUEUE_INDEX = 9; // Твоя черга 5.1
+		const rawIntervals = todayRow[QUEUE_INDEX];
+		const intervals = rawIntervals.match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/g) || [];
+
+		let notificationTitle = "";
+		let notificationBody = "";
+
+		for (const interval of intervals) {
+			const [startStr, endStr] = interval.split("-").map(s => s.trim());
+
+			const start = new Date(now);
+			const [sh, sm] = startStr.split(":").map(Number);
+			start.setHours(sh, sm, 0, 0);
+
+			const end = new Date(now);
+			const [eh, em] = endStr.split(":").map(Number);
+			end.setHours(eh, em, 0, 0);
+
+			const diffStart = (start - now) / 60000; // хвилини до вимкнення
+			const diffEnd = (end - now) / 60000;     // хвилини до увімкнення
+
+			// Логіка: Попереджаємо за 15-20 хвилин до події
+			if (diffStart > 10 && diffStart <= 25) {
+				notificationTitle = "⚠️ Скоро ВИМКНЕННЯ";
+				notificationBody = `Світло вимкнуть о ${startStr}. Підготуйтеся!`;
+				break;
+			} else if (diffEnd > 10 && diffEnd <= 25) {
+				notificationTitle = "✅ Скоро УВІМКНЕННЯ";
+				notificationBody = `Світло мають дати о ${endStr}. Готуйте чайник!`;
+				break;
+			}
 		}
 
-		// 🔥🔥🔥 ГОЛОВНА ФІШКА: Зберігаємо ці дані в кеш для сайту 🔥🔥🔥
-		// Тепер користувачам не треба чекати парсингу, Cron вже все зробив!
-		// EX 3600 = зберігаємо на 1 годину (до наступного крону)
-		await redis.set("schedule_full_cache", JSON.stringify(json), "EX", 3600);
-		console.log("💾 Cache updated by CRON");
+		// 3. Якщо є подія — розсилаємо Пуші
+		if (notificationTitle) {
+			const subsRaw = await redis.smembers("subs");
+			const results = await Promise.allSettled(
+				subsRaw.map(s => {
+					const sub = JSON.parse(s);
+					return webpush.sendNotification(sub, JSON.stringify({
+						title: notificationTitle,
+						body: notificationBody,
+						icon: "/icon-192x192.png"
+					}));
+				})
+			);
+			return NextResponse.json({ status: "Notifications sent", count: results.length });
+		}
 
-		const rows = json.data.slice(3);
+		return NextResponse.json({ status: "Checked. No upcoming events." });
 
-		// ... (ДАЛІ ТВІЙ КОД СПОВІЩЕНЬ БЕЗ ЗМІН) ...
-		// Я скоротив його тут для зручності, але ти залиш ту логіку, що ми писали раніше
-		// (перевірка часу, відправка пушів і т.д.)
-
-		// --- ТУТ МАЄ БУТИ ЛОГІКА ПУШІВ (Copy-Paste з минулого разу) ---
-
-		return NextResponse.json({ ok: true });
-
-	} catch (e) {
-		console.error("🔥 ERROR:", e);
-		return NextResponse.json({ error: e.message }, { status: 500 });
+	} catch (err) {
+		console.error("Cron Error:", err);
+		return NextResponse.json({ error: err.message }, { status: 500 });
 	}
 }
