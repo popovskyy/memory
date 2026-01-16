@@ -13,7 +13,7 @@ export default function HomePage() {
 				<div className="relative group w-full">
 					{/* 1. Заднє світіння (Blur) */}
 					<div className="absolute -inset-1 bg-gradient-to-r from-yellow-400 to-orange-600 rounded-xl blur opacity-20 group-hover:opacity-100 transition duration-500 group-hover:duration-200" />
-
+т
 					{/* 2. Сама кнопка 11*/}
 					<Link
 						href="/light"

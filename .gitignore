@@ -52,3 +52,4 @@ coverage/
 # GitHub Pages build
 gh-pages/
 
+.vercel
