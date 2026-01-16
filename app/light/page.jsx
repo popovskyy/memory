@@ -4,7 +4,12 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import PushManager from "../../components/PushManager";
 
-// --- ІКОНКИ ---
+// --- ГЛОБАЛЬНИЙ КЕШ (Живе, поки відкрита вкладка) ---
+// Це прибирає затримку при переході Home -> Light
+let globalRowsCache = null;
+let globalLastFetch = 0;
+
+// Іконки
 const IconZap = ({ className }) => (
 	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
 		<path fillRule="evenodd" d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z" clipRule="evenodd" />
@@ -18,15 +23,17 @@ const IconClock = ({ className }) => (
 );
 
 export default function LightPage() {
-	const [rows, setRows] = useState([]);
-	const [isDataLoaded, setIsDataLoaded] = useState(false);
+	// 1. Ініціалізуємо стан ВІДРАЗУ з глобальної пам'яті
+	const [rows, setRows] = useState(globalRowsCache || []);
+	// Якщо в глобалці щось є - вважаємо, що дані завантажені
+	const [isDataLoaded, setIsDataLoaded] = useState(!!globalRowsCache);
 
 	const QUEUE_INDEX = 9; // Черга 5.1
 	const [isOffNow, setIsOffNow] = useState(false);
 	const [nextEventText, setNextEventText] = useState("");
 	const [todayIntervals, setTodayIntervals] = useState([]);
 
-	// 1. Допоміжна функція парсингу (оголошена тут, щоб її було видно)
+	// Парсинг
 	const parseIntervals = (raw) => {
 		if (!raw) return [];
 		return raw.match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/g) || [];
@@ -39,7 +46,7 @@ export default function LightPage() {
 		return `${h > 0 ? h + " год " : ""}${m} хв`;
 	};
 
-	// 2. Функція, яка оновлює ТІЛЬКИ статус (текст, іконки), але НЕ rows
+	// Оновлення UI
 	const updateStatusUI = (currentRows) => {
 		if (!currentRows || currentRows.length === 0) return;
 
@@ -80,71 +87,62 @@ export default function LightPage() {
 		}
 	};
 
-	// 3. Функція, яка приймає НОВІ дані (зберігає rows і оновлює статус)
 	const handleNewData = (newRows) => {
+		// Оновлюємо глобальний кеш
+		globalRowsCache = newRows;
 		setRows(newRows);
 		setIsDataLoaded(true);
-		updateStatusUI(newRows); // Відразу рахуємо статус для нових даних
+		updateStatusUI(newRows);
 	};
 
-// --- ЕФЕКТ 1: Завантаження даних ---
+	// --- ГОЛОВНИЙ ЕФЕКТ ---
 	useEffect(() => {
-		// 1. Спочатку показуємо те, що є в пам'яті (МИТТЄВО)
-		const cached = localStorage.getItem("light-data");
-		const lastFetchTime = localStorage.getItem("light-last-fetch");
-		const now = Date.now();
-		let hasData = false;
-
-		if (cached) {
-			try {
-				const parsed = JSON.parse(cached);
-				if (parsed.length > 0) {
-					handleNewData(parsed);
-					hasData = true;
-				}
-			} catch (e) { console.error(e); }
+		// 1. Якщо у нас вже є дані в State (з глобалки) - оновлюємо тільки таймер
+		if (rows.length > 0) {
+			updateStatusUI(rows);
+		}
+		// 2. Якщо State пустий - ліземо в LocalStorage (теж швидко)
+		else {
+			const local = localStorage.getItem("light-data");
+			if (local) {
+				try {
+					const parsed = JSON.parse(local);
+					if (parsed.length > 0) handleNewData(parsed);
+				} catch (e) {}
+			}
 		}
 
-		// 2. Вирішуємо, чи треба оновлювати
-		// Якщо даних немає АБО пройшло більше 5 хвилин (300000 мс) -> робимо запит
-		// Якщо дані є і пройшло мало часу -> запит НЕ РОБИМО взагалі
-		if (!hasData || !lastFetchTime || (now - parseInt(lastFetchTime) > 300000)) {
+		// 3. ФОНОВЕ ОНОВЛЕННЯ (Мережа)
+		// Робимо запит, ТІЛЬКИ якщо пройшло більше 2 хвилин з останнього разу
+		const now = Date.now();
+		if (now - globalLastFetch > 120000) {
+			console.log("🔄 Background refresh...");
+			globalLastFetch = now; // Ставимо мітку відразу, щоб не робити подвійних запитів
 
-			console.log("⏳ Fetching fresh data...");
 			fetch("/api/disconnections")
 				.then(r => r.json())
 				.then(json => {
-					if (!json.error && json.data) {
+					if (json.data && json.data.length > 0) {
 						const newRows = json.data.slice(3);
 						handleNewData(newRows);
 						localStorage.setItem("light-data", JSON.stringify(newRows));
-						// Запам'ятовуємо час оновлення
-						localStorage.setItem("light-last-fetch", Date.now().toString());
 					}
 				})
-				.catch(e => console.error("Fetch error:", e));
+				.catch(e => console.error("Update skipped:", e));
 		} else {
-			console.log("✅ Data is fresh (from localStorage), skipping fetch");
+			console.log("✅ Using cached data (Network skipped)");
 		}
 
-	}, []);
-
-	// --- ЕФЕКТ 2: Таймер (Оновлює текст щохвилини) ---
-	useEffect(() => {
-		if (rows.length === 0) return;
-
-		// Запускаємо відразу при зміні rows, щоб не чекати хвилину
-		updateStatusUI(rows);
-
+		// Таймер оновлення тексту (щохвилини)
 		const timer = setInterval(() => {
-			// Тут ми викликаємо ТІЛЬКИ оновлення UI, а не setRows -> тому немає циклу
-			updateStatusUI(rows);
+			if (globalRowsCache) updateStatusUI(globalRowsCache);
 		}, 60000);
 
 		return () => clearInterval(timer);
-	}, [rows]); // Перезапускає таймер, тільки якщо змінилися самі дані
+	}, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-	// --- РЕНДЕР ---
+
+	// Рендер
 	if (!isDataLoaded && rows.length === 0)
 		return (
 			<div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-400">
@@ -161,6 +159,7 @@ export default function LightPage() {
 
 	return (
 		<main className="min-h-screen bg-slate-950 text-white font-sans selection:bg-purple-500/30 pb-10">
+			{/* Фон */}
 			<div className="fixed inset-0 pointer-events-none">
 				<div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-900/20 rounded-full blur-[100px]" />
 				<div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-900/20 rounded-full blur-[100px]" />
@@ -180,7 +179,7 @@ export default function LightPage() {
 					</div>
 				</header>
 
-				{/* Статус */}
+				{/* HERO STATUS CARD */}
 				<div className="relative">
 					<div className={`absolute -inset-1 rounded-3xl blur-xl opacity-40 transition-all duration-1000 ${isOffNow ? "bg-red-600" : "bg-emerald-500"}`} />
 					<div className={`relative rounded-3xl p-6 border transition-all duration-500 overflow-hidden ${isOffNow ? "bg-gradient-to-br from-red-950 to-slate-900 border-red-900/50" : "bg-gradient-to-br from-emerald-950 to-slate-900 border-emerald-900/50"}`}>
@@ -188,6 +187,7 @@ export default function LightPage() {
 							<div className={`p-4 rounded-full mb-1 shadow-lg ${isOffNow ? "bg-red-500/10 text-red-500 shadow-red-900/20" : "bg-emerald-500/10 text-emerald-400 shadow-emerald-900/20"}`}>
 								<IconZap className={`w-12 h-12 ${!isOffNow && "fill-current"}`} />
 							</div>
+
 							<div>
 								<h2 className="text-3xl font-black tracking-tight mb-1">
 									{isOffNow ? "Світла НЕМАЄ" : "Світло Є"}
@@ -201,12 +201,13 @@ export default function LightPage() {
 					</div>
 				</div>
 
-				{/* Сьогодні */}
+				{/* TODAY SCHEDULE */}
 				<section>
 					<div className="flex items-center gap-2 mb-4 px-2">
 						<div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
 						<h3 className="text-lg font-bold text-slate-200">Розклад на сьогодні</h3>
 					</div>
+
 					<div className="grid gap-3">
 						{todayIntervals.length > 0 ? (
 							todayIntervals.map((interval, i) => (
@@ -226,7 +227,7 @@ export default function LightPage() {
 					</div>
 				</section>
 
-				{/* Майбутнє */}
+				{/* FUTURE DAYS */}
 				{futureRows.length > 0 && (
 					<section className="pt-4 border-t border-slate-800/50">
 						<h3 className="text-lg font-bold text-slate-200 mb-4 px-2">Наступні дні</h3>
@@ -234,7 +235,7 @@ export default function LightPage() {
 							{futureRows.map((row, i) => {
 								const raw = row[QUEUE_INDEX];
 								const intervals = parseIntervals(raw);
-								const isWaiting = raw && raw.includes("Очікується");
+								const isWaiting = raw.includes("Очікується");
 								const [dateDay, dateMonth] = row[0].split('.');
 
 								return (
