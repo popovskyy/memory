@@ -14,7 +14,7 @@ export default function HomePage() {
 					{/* 1. Заднє світіння (Blur) */}
 					<div className="absolute -inset-1 bg-gradient-to-r from-yellow-400 to-orange-600 rounded-xl blur opacity-20 group-hover:opacity-100 transition duration-500 group-hover:duration-200" />
 
-					{/* 2. Сама кнопка */}
+					{/* 2. Сама кнопка 11*/}
 					<Link
 						href="/light"
 						className="relative flex items-center justify-center gap-3 w-full px-8 py-5 bg-gradient-to-br from-yellow-500 via-orange-500 to-yellow-600 rounded-xl text-white font-black text-2xl tracking-wider shadow-lg transform transition-all duration-300 group-hover:scale-[1.02] group-hover:-translate-y-1 group-hover:shadow-yellow-500/50 border border-yellow-400/30 overflow-hidden"
