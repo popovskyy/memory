@@ -5,50 +5,106 @@ import { NextResponse } from "next/server";
 import { parse } from "node-html-parser";
 import Redis from "ioredis";
 
-// Підключаємось до твоєї бази
-const redis = new Redis(process.env.REDIS_URL);
+// --- ОПТИМІЗАЦІЯ 1: Глобальне підключення (Connection Pooling) ---
+// Це запобігає створенню нових з'єднань на кожному кліку
+let redisInstance = null;
+
+function getRedis() {
+	if (!process.env.REDIS_URL) return null;
+	if (!redisInstance) {
+		redisInstance = new Redis(process.env.REDIS_URL, {
+			connectTimeout: 2000, // Чекаємо базу макс 2 сек
+			maxRetriesPerRequest: 1,
+			lazyConnect: true, // Підключаємось тільки коли треба
+		});
+		// Обробка помилок, щоб сервер не падав
+		redisInstance.on("error", (err) => console.warn("Redis connection error:", err.message));
+	}
+	return redisInstance;
+}
 
 export async function GET() {
-	try {
-		// 1. ⚡ Спробуємо взяти з кешу Redis (це дуже швидко)
-		const cachedData = await redis.get("schedule_full_cache");
+	const redis = getRedis();
 
-		if (cachedData) {
-			// Якщо є в базі - віддаємо відразу, не парсимо сайт
-			return NextResponse.json(JSON.parse(cachedData));
+	// Змінна для результату
+	let resultData = null;
+
+	try {
+		// --- ЕТАП 1: Redis (Дуже швидко) ---
+		if (redis) {
+			try {
+				// Якщо підключення ще не активне - підключаємось
+				if (redis.status !== "ready" && redis.status !== "connecting") {
+					await redis.connect().catch(() => {});
+				}
+
+				// Ставимо жорсткий таймаут на читання з бази (1.5 сек)
+				const cachePromise = redis.get("schedule_full_cache");
+				const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Redis Timeout")), 1500));
+
+				const cached = await Promise.race([cachePromise, timeoutPromise]);
+
+				if (cached) {
+					console.log("🚀 HIT: Returning cached data");
+					return NextResponse.json(JSON.parse(cached));
+				}
+			} catch (e) {
+				console.log("⚠️ Cache Miss/Skip:", e.message);
+				// Якщо база тупить - не страшно, йдемо далі
+			}
 		}
 
-		// 2. 🐢 Якщо в базі пусто або старо - парсимо сайт
-		console.log("Cache miss. Scraping site...");
-		const resp = await fetch("https://www.roe.vsei.ua/disconnections", {
-			cache: "no-store",
-			headers: { "User-Agent": "Mozilla/5.0" },
-		});
+		// --- ЕТАП 2: Парсинг (з таймаутом 4 сек) ---
+		console.log("🌍 Fetching live data...");
+		const controller = new AbortController();
+		const fetchTimeout = setTimeout(() => controller.abort(), 4000); // 4 сек макс
 
-		const html = await resp.text();
-		const root = parse(html);
+		try {
+			const resp = await fetch("https://www.roe.vsei.ua/disconnections", {
+				cache: "no-store",
+				headers: {
+					"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" // Прикидаємось гуглом, щоб не блокували
+				},
+				signal: controller.signal,
+			});
+			clearTimeout(fetchTimeout);
 
-		const container = root.querySelector("#fetched-data-container");
-		if (!container) throw new Error("Container not found");
+			if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-		const table = container.querySelector("table");
-		if (!table) throw new Error("Table not found");
+			const html = await resp.text();
+			const root = parse(html);
 
-		const rows = table.querySelectorAll("tr");
-		const data = rows.map((row) =>
-			row.querySelectorAll("td, th").map((col) => col.text.trim())
-		);
+			const container = root.querySelector("#fetched-data-container");
+			const table = container ? container.querySelector("table") : null;
 
-		const result = { data };
+			if (!table) throw new Error("Table structure changed or blocked");
 
-		// 3. 💾 Зберігаємо в Redis на 30 хвилин (1800 сек)
-		// Тепер наступні запити будуть літати
-		await redis.set("schedule_full_cache", JSON.stringify(result), "EX", 1800);
+			const rows = table.querySelectorAll("tr");
+			const data = rows.map((row) =>
+				row.querySelectorAll("td, th").map((col) => col.text.trim())
+			);
 
-		return NextResponse.json(result);
+			resultData = { data };
+
+			// --- ЕТАП 3: Збереження (Фоново) ---
+			// Не чекаємо завершення запису, віддаємо відповідь юзеру відразу
+			if (redis && resultData) {
+				redis.set("schedule_full_cache", JSON.stringify(resultData), "EX", 1800).catch(e => console.error("Save fail:", e.message));
+			}
+
+			return NextResponse.json(resultData);
+
+		} catch (fetchError) {
+			console.error("❌ Fetch Error:", fetchError.message);
+			clearTimeout(fetchTimeout);
+
+			// Якщо парсинг не вдався, але у нас є старий кеш (навіть якщо таймаут вийшов), спробуємо дістати хоч щось?
+			// На жаль, якщо ми тут, то кеш вже перевіряли.
+			return NextResponse.json({ error: "Джерело даних не відповідає", details: fetchError.message }, { status: 500 });
+		}
 
 	} catch (err) {
-		console.error("Scraper Error:", err);
-		return NextResponse.json({ error: "Scraper failed" }, { status: 500 });
+		console.error("Critical Error:", err.message);
+		return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
 	}
 }
