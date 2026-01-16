@@ -97,19 +97,19 @@ export default function PushManager() {
 				}
 			</button>
 
-			{/* Кнопка тесту (показуємо, тільки якщо вже підписані) */}
-			{isSubscribed && (
-				<button
-					onClick={sendTestPush}
-					className="mt-3 text-xs text-indigo-400 hover:text-indigo-300 underline"
-				>
-					Надіслати тестовий пуш
-				</button>
-			)}
+			{/*/!* Кнопка тесту (показуємо, тільки якщо вже підписані) *!/*/}
+			{/*{isSubscribed && (*/}
+			{/*	<button*/}
+			{/*		onClick={sendTestPush}*/}
+			{/*		className="mt-3 text-xs text-indigo-400 hover:text-indigo-300 underline"*/}
+			{/*	>*/}
+			{/*		Надіслати тестовий пуш*/}
+			{/*	</button>*/}
+			{/*)}*/}
 
-			<p className="text-xs text-slate-500 mt-2 px-2">
-				*Працює тільки якщо додати сайт на Домашній екран (PWA)
-			</p>
+			{/*<p className="text-xs text-slate-500 mt-2 px-2">*/}
+			{/*	*Працює тільки якщо додати сайт на Домашній екран (PWA)*/}
+			{/*</p>*/}
 		</div>
 	);
 }

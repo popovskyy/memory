@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import PushManager from "../components/PushManager";
+import WaterOrderButton from "../components/WaterOrderButton";
 
 // --- ІКОНКИ ---
 const IconZap = ({ className }) => (
@@ -160,6 +161,7 @@ export default function HomePage() {
 						<span className="absolute -top-2 -right-2 bg-gradient-to-r from-red-500 to-pink-600 text-white text-[10px] font-black px-2 py-1 rounded-full border-2 border-slate-900 shadow-lg animate-bounce">NEW</span>
 					</div>
 
+					<WaterOrderButton />
 					<PushManager />
 				</div>
 			</div>
