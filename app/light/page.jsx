@@ -87,29 +87,47 @@ export default function LightPage() {
 		updateStatusUI(newRows); // Відразу рахуємо статус для нових даних
 	};
 
-	// --- ЕФЕКТ 1: Завантаження даних (Тільки при старті) ---
+// --- ЕФЕКТ 1: Завантаження даних ---
 	useEffect(() => {
-		// А) Пробуємо взяти з кешу
+		// 1. Спочатку показуємо те, що є в пам'яті (МИТТЄВО)
 		const cached = localStorage.getItem("light-data");
+		const lastFetchTime = localStorage.getItem("light-last-fetch");
+		const now = Date.now();
+		let hasData = false;
+
 		if (cached) {
 			try {
 				const parsed = JSON.parse(cached);
-				if (parsed.length > 0) handleNewData(parsed);
+				if (parsed.length > 0) {
+					handleNewData(parsed);
+					hasData = true;
+				}
 			} catch (e) { console.error(e); }
 		}
 
-		// Б) Фоново оновлюємо з API
-		fetch("/api/disconnections")
-			.then(r => r.json())
-			.then(json => {
-				if (!json.error && json.data) {
-					const newRows = json.data.slice(3);
-					handleNewData(newRows);
-					localStorage.setItem("light-data", JSON.stringify(newRows));
-				}
-			})
-			.catch(e => console.error("Background fetch error:", e));
-	}, []); // Порожній масив = виконується 1 раз при вході
+		// 2. Вирішуємо, чи треба оновлювати
+		// Якщо даних немає АБО пройшло більше 5 хвилин (300000 мс) -> робимо запит
+		// Якщо дані є і пройшло мало часу -> запит НЕ РОБИМО взагалі
+		if (!hasData || !lastFetchTime || (now - parseInt(lastFetchTime) > 300000)) {
+
+			console.log("⏳ Fetching fresh data...");
+			fetch("/api/disconnections")
+				.then(r => r.json())
+				.then(json => {
+					if (!json.error && json.data) {
+						const newRows = json.data.slice(3);
+						handleNewData(newRows);
+						localStorage.setItem("light-data", JSON.stringify(newRows));
+						// Запам'ятовуємо час оновлення
+						localStorage.setItem("light-last-fetch", Date.now().toString());
+					}
+				})
+				.catch(e => console.error("Fetch error:", e));
+		} else {
+			console.log("✅ Data is fresh (from localStorage), skipping fetch");
+		}
+
+	}, []);
 
 	// --- ЕФЕКТ 2: Таймер (Оновлює текст щохвилини) ---
 	useEffect(() => {

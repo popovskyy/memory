@@ -2,10 +2,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { parse } from "node-html-parser";
 import Redis from "ioredis";
 
-// Глобальний клієнт, щоб не підключатися щоразу
+// Глобальне підключення
 let redisInstance = null;
 function getRedis() {
 	if (!process.env.REDIS_URL) return null;
@@ -15,76 +14,42 @@ function getRedis() {
 			lazyConnect: true,
 			retryStrategy: null
 		});
-		redisInstance.on("error", (e) => console.warn("Redis err:", e.message));
+		redisInstance.on("error", (e) => console.warn("Redis Error:", e.message));
 	}
 	return redisInstance;
 }
 
 export async function GET() {
 	const redis = getRedis();
+	let data = [];
 
 	try {
-		// 1. 🚀 СУПЕР ШВИДКІСТЬ: Читаємо те, що зберіг CRON
+		// 1. Читаємо Redis (його наповнює CRON)
 		if (redis) {
-			try {
-				if (redis.status !== "ready" && redis.status !== "connecting") {
-					// Фонове підключення без await, якщо ioredis вміє сам
-					redis.connect().catch(() => {});
-				}
-
-				// Даємо Redis 1 секунду на відповідь
-				const cachePromise = redis.get("schedule_full_cache");
-				const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(null), 1000));
-
-				const cached = await Promise.race([cachePromise, timeoutPromise]);
-
-				if (cached) {
-					// 🎉 УРА! Повертаємо дані миттєво
-					return NextResponse.json(JSON.parse(cached));
-				}
-			} catch (e) {
-				console.warn("Redis skip:", e.message);
+			if (redis.status !== "ready" && redis.status !== "connecting") {
+				await redis.connect().catch(() => {});
+			}
+			const cached = await redis.get("schedule_full_cache");
+			if (cached) {
+				const parsed = JSON.parse(cached);
+				data = parsed.data || [];
 			}
 		}
 
-		// 2. 🐢 ЗАПАСНИЙ ВАРІАНТ: Якщо Cron ще не працював або Redis впав
-		// Тільки тоді парсимо сайт (це буде довго, але це рідкісний випадок)
-		console.log("⚠️ Cache miss. Fetching live...");
+		// 2. Формуємо відповідь
+		const response = NextResponse.json({ data });
 
-		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 4000);
+		// 🔥 ТУТ ФІКС: Забороняємо браузеру довбити сервер 🔥
+		// public -> дозволено кешувати всім
+		// max-age=300 -> Браузер (сафарі/хром), запам'ятай цей JSON на 300 сек (5 хв).
+		// s-maxage=300 -> Vercel CDN, теж запам'ятай на 5 хв.
+		// Тобто 5 хвилин телефон навіть не полізе в інтернет за цим файлом.
+		response.headers.set('Cache-Control', 'public, max-age=300, s-maxage=300, stale-while-revalidate=60');
 
-		const resp = await fetch("https://www.roe.vsei.ua/disconnections", {
-			cache: "no-store",
-			headers: { "User-Agent": "Mozilla/5.0" },
-			signal: controller.signal
-		});
-		clearTimeout(timeoutId);
-
-		if (!resp.ok) throw new Error("Source error");
-
-		const html = await resp.text();
-		const root = parse(html);
-		const table = root.querySelector("#fetched-data-container table");
-
-		if (!table) throw new Error("No table");
-
-		const rows = table.querySelectorAll("tr");
-		const data = rows.map((row) =>
-			row.querySelectorAll("td, th").map((col) => col.text.trim())
-		);
-
-		const result = { data };
-
-		// Зберігаємо в кеш, щоб наступному юзеру було швидко
-		if (redis) {
-			redis.set("schedule_full_cache", JSON.stringify(result), "EX", 3600).catch(()=>{});
-		}
-
-		return NextResponse.json(result);
+		return response;
 
 	} catch (err) {
 		console.error("API Error:", err.message);
-		return NextResponse.json({ error: "Data unavailable" }, { status: 500 });
+		return NextResponse.json({ error: "Server Error", data: [] }, { status: 500 });
 	}
 }
