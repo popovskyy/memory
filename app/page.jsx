@@ -5,19 +5,27 @@ import Link from "next/link";
 export default function HomePage() {
 
 	useEffect(() => {
-		// preload data silently
-		fetch("/api/disconnections")
-			.then(r => r.json())
-			.then(json => {
+		// Миттєвий запит без очікування результату
+		// Це "розігріває" Redis або API
+		const preload = async () => {
+			try {
+				const res = await fetch("/api/disconnections", { priority: "low" });
+				const json = await res.json();
 				if (json.data) {
 					const tableRows = json.data.slice(3);
 					localStorage.setItem("light-data", JSON.stringify(tableRows));
 				}
-			})
-			.catch(() => {});
+			} catch (e) {
+				// Ігноруємо помилки прелоаду
+			}
+		};
+
+		// Запускаємо через 100мс після рендеру, щоб не гальмувати анімації
+		setTimeout(preload, 100);
 	}, []);
 
 	return (
+		// ... твій існуючий return ...
 		<main className="min-h-screen flex items-center justify-center p-6 bg-gray-900">
 			<div className="max-w-md w-full bg-gray-800 text-white p-8 rounded-xl space-y-6 shadow-xl">
 
