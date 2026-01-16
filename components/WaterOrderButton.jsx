@@ -46,11 +46,6 @@ export default function WaterOrderLink() {
 					</svg>
 				</div>
 			</a>
-
-			{/* Підказка знизу */}
-			<p className="text-center text-[11px] text-slate-400 mt-3 font-medium tracking-tight">
-				Затисніть для вибору браузера
-			</p>
 		</div>
 	);
 }
