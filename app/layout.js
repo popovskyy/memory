@@ -1,9 +1,10 @@
 import "./globals.css";
 import Script from "next/script";
+import { LightProvider } from "./context/LightContext";
 
 export const metadata = {
-	title: "Сімейна Гра",
-	description: "Сімейна Гра",
+	title: "Light+",
+	description: "Графік відключення світла",
 };
 
 // 👇 Список картинок для передзавантаження
@@ -72,8 +73,9 @@ export default function RootLayout({ children }) {
 			))}
 		</head>
 		<body>
-		{children}
-
+		<LightProvider>
+			{children}
+		</LightProvider>
 		{/* ⭐ Реєстрація service worker */}
 		<Script id="sw-register" strategy="afterInteractive">
 			{`
