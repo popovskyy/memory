@@ -26,7 +26,7 @@ export async function GET() {
 	if (!redis) return NextResponse.json({ error: "No Redis" }, { status: 500 });
 
 	try {
-		// 1. Оновлюємо кеш графіку через виклик основного API
+		// 1. Оновлюємо кеш графіку
 		const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://memory-zeta-ruddy.vercel.app";
 		const res = await fetch(`${baseUrl}/api/disconnections`, { cache: 'no-store' });
 		const { data } = await res.json();
@@ -45,31 +45,30 @@ export async function GET() {
 		let notificationTitle = "";
 		let notificationBody = "";
 
-		if (todayRow) {
+		// ========================================================
+		// 🔥 ТЕСТОВИЙ БЛОК (ВИДАЛИ АБО ЗАКОМЕНТУЙ ПІСЛЯ ПЕРЕВІРКИ)
+		// ========================================================
+		notificationTitle = "🚀 ТЕСТ ЗВ'ЯЗКУ";
+		notificationBody = `Це примусове сповіщення. Час на сервері: ${nowKyiv.toLocaleTimeString()}`;
+		// ========================================================
+
+		if (!notificationTitle && todayRow) {
 			const currentScheduleRaw = todayRow[QUEUE_INDEX] || "";
 			const intervals = currentScheduleRaw.match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/g) || [];
 
-			// --- ЛОГІКА 1: Перевірка зміни графіку (порівняння з Redis) ---
 			const lastScheduleHash = await redis.get("last_schedule_state");
-
-			// Якщо графік існує в базі і він відрізняється від поточного
 			if (lastScheduleHash && lastScheduleHash !== currentScheduleRaw) {
 				notificationTitle = "🔄 Графік ЗМІНИВСЯ!";
 				notificationBody = "Обленерго оновило години відключень. Перевірте актуальний розклад!";
 			}
-
-			// Оновлюємо збережений стан у Redis для наступної перевірки
 			await redis.set("last_schedule_state", currentScheduleRaw);
 
-			// --- ЛОГІКА 2: Наближення події (тільки якщо графік не змінювався щойно) ---
 			if (!notificationTitle) {
 				for (const interval of intervals) {
 					const [startStr, endStr] = interval.split("-").map(s => s.trim());
-
 					const start = new Date(nowKyiv);
 					const [sh, sm] = startStr.split(":").map(Number);
 					start.setHours(sh, sm, 0, 0);
-
 					const end = new Date(nowKyiv);
 					const [eh, em] = endStr.split(":").map(Number);
 					end.setHours(eh, em, 0, 0);
@@ -77,8 +76,6 @@ export async function GET() {
 					const diffStart = (start.getTime() - nowKyiv.getTime()) / 60000;
 					const diffEnd = (end.getTime() - nowKyiv.getTime()) / 60000;
 
-					// Діапазон від -2 хв (вже сталося) до 25 хв (скоро буде)
-					// Це гарантує спрацювання при запуску Cron кожні 10-15 хвилин
 					if (diffStart >= -2 && diffStart <= 25) {
 						const when = diffStart <= 0 ? "ПРЯМО ЗАРАЗ!" : `через ${Math.round(diffStart)} хв`;
 						notificationTitle = "⚠️ Увага! ВИМКНЕННЯ";
@@ -95,7 +92,7 @@ export async function GET() {
 			}
 		}
 
-		// 3. Відправка пуш-повідомлень усім підписникам
+		// 3. Відправка пуш-повідомлень
 		if (notificationTitle) {
 			const subsRaw = await redis.smembers("subs");
 			const results = await Promise.allSettled(
@@ -109,7 +106,6 @@ export async function GET() {
 				})
 			);
 
-			// Повертаємо деталі відправки для логів Cron-job.org
 			return NextResponse.json({
 				status: "Sent",
 				title: notificationTitle,
@@ -118,7 +114,6 @@ export async function GET() {
 			});
 		}
 
-		// Якщо жодна логіка не спрацювала (немає подій у вікні 25 хв)
 		return NextResponse.json({
 			status: "Checked. No logic match.",
 			timeKyiv: nowKyiv.toLocaleTimeString()
