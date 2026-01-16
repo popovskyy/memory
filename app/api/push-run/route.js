@@ -5,6 +5,7 @@ import { NextResponse } from "next/server";
 import Redis from "ioredis";
 import webpush from "web-push";
 
+// Налаштування Push (VAPID)
 webpush.setVapidDetails(
 	"mailto:roman@example.com",
 	process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY,
@@ -25,21 +26,21 @@ export async function GET() {
 	if (!redis) return NextResponse.json({ error: "No Redis" }, { status: 500 });
 
 	try {
-		// 1. Оновлюємо кеш графіку
+		// 1. Оновлюємо кеш графіку через виклик основного API
 		const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://memory-zeta-ruddy.vercel.app";
 		const res = await fetch(`${baseUrl}/api/disconnections`, { cache: 'no-store' });
 		const { data } = await res.json();
 
 		if (!data || data.length === 0) return NextResponse.json({ status: "No data" });
 
-		// 2. Час (Київ)
+		// 2. Час (Київ: UTC + 2 години)
 		const nowUTC = new Date();
 		const KYIV_OFFSET = 2 * 60 * 60 * 1000;
 		const nowKyiv = new Date(nowUTC.getTime() + KYIV_OFFSET);
 		const todayStr = nowKyiv.toLocaleDateString("uk-UA").replace(/\./g, ".");
 
 		const todayRow = data.find((r) => r[0] === todayStr);
-		const QUEUE_INDEX = 9; // Черга 5.1
+		const QUEUE_INDEX = 9; // Твоя черга 5.1
 
 		let notificationTitle = "";
 		let notificationBody = "";
@@ -48,18 +49,19 @@ export async function GET() {
 			const currentScheduleRaw = todayRow[QUEUE_INDEX] || "";
 			const intervals = currentScheduleRaw.match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/g) || [];
 
-			// --- ЛОГІКА 1: Перевірка зміни графіку ---
+			// --- ЛОГІКА 1: Перевірка зміни графіку (порівняння з Redis) ---
 			const lastScheduleHash = await redis.get("last_schedule_state");
 
-			// Ігноруємо перший запуск, щоб не спамити відразу
+			// Якщо графік існує в базі і він відрізняється від поточного
 			if (lastScheduleHash && lastScheduleHash !== currentScheduleRaw) {
 				notificationTitle = "🔄 Графік ЗМІНИВСЯ!";
-				notificationBody = "Обленерго оновило години відключень. Перевірте!";
+				notificationBody = "Обленерго оновило години відключень. Перевірте актуальний розклад!";
 			}
-			// Завжди оновлюємо стан
+
+			// Оновлюємо збережений стан у Redis для наступної перевірки
 			await redis.set("last_schedule_state", currentScheduleRaw);
 
-			// --- ЛОГІКА 2: Час (тільки якщо немає сповіщення про зміну) ---
+			// --- ЛОГІКА 2: Наближення події (тільки якщо графік не змінювався щойно) ---
 			if (!notificationTitle) {
 				for (const interval of intervals) {
 					const [startStr, endStr] = interval.split("-").map(s => s.trim());
@@ -75,12 +77,9 @@ export async function GET() {
 					const diffStart = (start.getTime() - nowKyiv.getTime()) / 60000;
 					const diffEnd = (end.getTime() - nowKyiv.getTime()) / 60000;
 
-					// 🔥 ГОЛОВНА ЗМІНА ТУТ:
-					// Ловимо від -2 хв (тільки що сталося) до 25 хв (скоро буде)
-
+					// Діапазон від -2 хв (вже сталося) до 25 хв (скоро буде)
+					// Це гарантує спрацювання при запуску Cron кожні 10-15 хвилин
 					if (diffStart >= -2 && diffStart <= 25) {
-						// Щоб не спамити кожні 10 хв про одну подію, можна перевірити чи вже слали
-						// Але поки залишимо просто текст
 						const when = diffStart <= 0 ? "ПРЯМО ЗАРАЗ!" : `через ${Math.round(diffStart)} хв`;
 						notificationTitle = "⚠️ Увага! ВИМКНЕННЯ";
 						notificationBody = `Світло зникає ${when} (о ${startStr})`;
@@ -96,7 +95,7 @@ export async function GET() {
 			}
 		}
 
-		// 3. Відправка
+		// 3. Відправка пуш-повідомлень усім підписникам
 		if (notificationTitle) {
 			const subsRaw = await redis.smembers("subs");
 			const results = await Promise.allSettled(
@@ -109,9 +108,17 @@ export async function GET() {
 					}));
 				})
 			);
-			return NextResponse.json({ status: "Sent", title: notificationTitle, count: results.length });
+
+			// Повертаємо деталі відправки для логів Cron-job.org
+			return NextResponse.json({
+				status: "Sent",
+				title: notificationTitle,
+				count: results.length,
+				timeChecked: nowKyiv.toLocaleTimeString()
+			});
 		}
 
+		// Якщо жодна логіка не спрацювала (немає подій у вікні 25 хв)
 		return NextResponse.json({
 			status: "Checked. No logic match.",
 			timeKyiv: nowKyiv.toLocaleTimeString()
