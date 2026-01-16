@@ -1,11 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import PushManager from "../../components/PushManager";
-import { useLight } from "../context/LightContext"; // 👈 Імпортуємо хук
 
-// --- ІКОНКИ ---
+// --- ГЛОБАЛЬНИЙ КЕШ (Живе, поки відкрита вкладка) ---
+// Це прибирає затримку при переході Home -> Light
+let globalRowsCache = null;
+let globalLastFetch = 0;
+
+// Іконки
 const IconZap = ({ className }) => (
 	<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className={className}>
 		<path fillRule="evenodd" d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z" clipRule="evenodd" />
@@ -19,14 +23,21 @@ const IconClock = ({ className }) => (
 );
 
 export default function LightPage() {
-	// 👇 БЕРЕМО ГОТОВІ ДАНІ З КОНТЕКСТУ (МИТТЄВО)
-	const { rows, loading } = useLight();
+	// 1. Ініціалізуємо стан ВІДРАЗУ з глобальної пам'яті
+	const [rows, setRows] = useState(globalRowsCache || []);
+	// Якщо в глобалці щось є - вважаємо, що дані завантажені
+	const [isDataLoaded, setIsDataLoaded] = useState(!!globalRowsCache);
 
 	const QUEUE_INDEX = 9; // Черга 5.1
-	const [status, setStatus] = useState({ isOff: false, text: "", intervals: [] });
+	const [isOffNow, setIsOffNow] = useState(false);
+	const [nextEventText, setNextEventText] = useState("");
+	const [todayIntervals, setTodayIntervals] = useState([]);
 
 	// Парсинг
-	const parseIntervals = (raw) => raw?.match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/g) || [];
+	const parseIntervals = (raw) => {
+		if (!raw) return [];
+		return raw.match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/g) || [];
+	};
 
 	const formatDiff = (ms) => {
 		const mins = Math.floor(ms / 60000);
@@ -35,17 +46,18 @@ export default function LightPage() {
 		return `${h > 0 ? h + " год " : ""}${m} хв`;
 	};
 
-	// Перерахунок статусу (тільки UI)
-	const recalcStatus = () => {
-		if (!rows || rows.length === 0) return;
+	// Оновлення UI
+	const updateStatusUI = (currentRows) => {
+		if (!currentRows || currentRows.length === 0) return;
 
 		const now = new Date();
 		const todayStr = now.toLocaleDateString("uk-UA").replace(/\./g, ".");
-		const todayRow = rows.find((r) => r[0] === todayStr);
+		const todayRow = currentRows.find((r) => r[0] === todayStr);
 
 		if (todayRow) {
 			const raw = todayRow[QUEUE_INDEX];
 			const intervals = parseIntervals(raw);
+			setTodayIntervals(intervals);
 
 			let offNow = false;
 			let nextChangeText = "Дані уточнюються";
@@ -70,19 +82,68 @@ export default function LightPage() {
 					break;
 				}
 			}
-			setStatus({ isOff: offNow, text: nextChangeText, intervals });
+			setIsOffNow(offNow);
+			setNextEventText(nextChangeText);
 		}
 	};
 
-	// Рахуємо статус при зміні rows або щохвилини
-	useEffect(() => {
-		recalcStatus();
-		const timer = setInterval(recalcStatus, 60000);
-		return () => clearInterval(timer);
-	}, [rows]);
+	const handleNewData = (newRows) => {
+		// Оновлюємо глобальний кеш
+		globalRowsCache = newRows;
+		setRows(newRows);
+		setIsDataLoaded(true);
+		updateStatusUI(newRows);
+	};
 
-	// Лоадер тільки якщо контекст ще зовсім пустий (перший вхід)
-	if (loading && rows.length === 0)
+	// --- ГОЛОВНИЙ ЕФЕКТ ---
+	useEffect(() => {
+		// 1. Якщо у нас вже є дані в State (з глобалки) - оновлюємо тільки таймер
+		if (rows.length > 0) {
+			updateStatusUI(rows);
+		}
+		// 2. Якщо State пустий - ліземо в LocalStorage (теж швидко)
+		else {
+			const local = localStorage.getItem("light-data");
+			if (local) {
+				try {
+					const parsed = JSON.parse(local);
+					if (parsed.length > 0) handleNewData(parsed);
+				} catch (e) {}
+			}
+		}
+
+		// 3. ФОНОВЕ ОНОВЛЕННЯ (Мережа)
+		// Робимо запит, ТІЛЬКИ якщо пройшло більше 2 хвилин з останнього разу
+		const now = Date.now();
+		if (now - globalLastFetch > 120000) {
+			console.log("🔄 Background refresh...");
+			globalLastFetch = now; // Ставимо мітку відразу, щоб не робити подвійних запитів
+
+			fetch("/api/disconnections")
+				.then(r => r.json())
+				.then(json => {
+					if (json.data && json.data.length > 0) {
+						const newRows = json.data.slice(3);
+						handleNewData(newRows);
+						localStorage.setItem("light-data", JSON.stringify(newRows));
+					}
+				})
+				.catch(e => console.error("Update skipped:", e));
+		} else {
+			console.log("✅ Using cached data (Network skipped)");
+		}
+
+		// Таймер оновлення тексту (щохвилини)
+		const timer = setInterval(() => {
+			if (globalRowsCache) updateStatusUI(globalRowsCache);
+		}, 60000);
+
+		return () => clearInterval(timer);
+	}, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+
+	// Рендер
+	if (!isDataLoaded && rows.length === 0)
 		return (
 			<div className="min-h-screen flex items-center justify-center bg-slate-950 text-slate-400">
 				<div className="animate-pulse flex flex-col items-center gap-2">
@@ -98,12 +159,14 @@ export default function LightPage() {
 
 	return (
 		<main className="min-h-screen bg-slate-950 text-white font-sans selection:bg-purple-500/30 pb-10">
+			{/* Фон */}
 			<div className="fixed inset-0 pointer-events-none">
 				<div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-purple-900/20 rounded-full blur-[100px]" />
 				<div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-blue-900/20 rounded-full blur-[100px]" />
 			</div>
 
 			<div className="relative z-10 max-w-md mx-auto p-4 flex flex-col gap-6">
+
 				<header className="flex items-center justify-between py-2">
 					<Link href="/" className="group flex items-center gap-2 text-slate-400 hover:text-white transition-colors">
 						<div className="p-2 rounded-full bg-slate-900/50 border border-slate-800 group-hover:border-slate-600 transition-all">
@@ -118,20 +181,20 @@ export default function LightPage() {
 
 				{/* HERO STATUS CARD */}
 				<div className="relative">
-					<div className={`absolute -inset-1 rounded-3xl blur-xl opacity-40 transition-all duration-1000 ${status.isOff ? "bg-red-600" : "bg-emerald-500"}`} />
-					<div className={`relative rounded-3xl p-6 border transition-all duration-500 overflow-hidden ${status.isOff ? "bg-gradient-to-br from-red-950 to-slate-900 border-red-900/50" : "bg-gradient-to-br from-emerald-950 to-slate-900 border-emerald-900/50"}`}>
+					<div className={`absolute -inset-1 rounded-3xl blur-xl opacity-40 transition-all duration-1000 ${isOffNow ? "bg-red-600" : "bg-emerald-500"}`} />
+					<div className={`relative rounded-3xl p-6 border transition-all duration-500 overflow-hidden ${isOffNow ? "bg-gradient-to-br from-red-950 to-slate-900 border-red-900/50" : "bg-gradient-to-br from-emerald-950 to-slate-900 border-emerald-900/50"}`}>
 						<div className="flex flex-col items-center text-center gap-3">
-							<div className={`p-4 rounded-full mb-1 shadow-lg ${status.isOff ? "bg-red-500/10 text-red-500 shadow-red-900/20" : "bg-emerald-500/10 text-emerald-400 shadow-emerald-900/20"}`}>
-								<IconZap className={`w-12 h-12 ${!status.isOff && "fill-current"}`} />
+							<div className={`p-4 rounded-full mb-1 shadow-lg ${isOffNow ? "bg-red-500/10 text-red-500 shadow-red-900/20" : "bg-emerald-500/10 text-emerald-400 shadow-emerald-900/20"}`}>
+								<IconZap className={`w-12 h-12 ${!isOffNow && "fill-current"}`} />
 							</div>
 
 							<div>
 								<h2 className="text-3xl font-black tracking-tight mb-1">
-									{status.isOff ? "Світла НЕМАЄ" : "Світло Є"}
+									{isOffNow ? "Світла НЕМАЄ" : "Світло Є"}
 								</h2>
 								<div className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-slate-950/50 border border-white/5 backdrop-blur-sm">
 									<IconClock className="w-4 h-4 text-slate-400" />
-									<span className="text-sm font-medium text-slate-200">{status.text}</span>
+									<span className="text-sm font-medium text-slate-200">{nextEventText}</span>
 								</div>
 							</div>
 						</div>
@@ -146,8 +209,8 @@ export default function LightPage() {
 					</div>
 
 					<div className="grid gap-3">
-						{status.intervals.length > 0 ? (
-							status.intervals.map((interval, i) => (
+						{todayIntervals.length > 0 ? (
+							todayIntervals.map((interval, i) => (
 								<div key={i} className="flex items-center justify-between p-4 bg-slate-900/60 border border-slate-800 rounded-2xl backdrop-blur-md shadow-sm hover:border-slate-700 transition-colors">
 									<div className="flex items-center gap-3">
 										<div className="p-2 rounded-lg bg-red-500/10 text-red-400"><IconZap className="w-5 h-5" /></div>
@@ -172,7 +235,7 @@ export default function LightPage() {
 							{futureRows.map((row, i) => {
 								const raw = row[QUEUE_INDEX];
 								const intervals = parseIntervals(raw);
-								const isWaiting = raw && raw.includes("Очікується");
+								const isWaiting = raw.includes("Очікується");
 								const [dateDay, dateMonth] = row[0].split('.');
 
 								return (
