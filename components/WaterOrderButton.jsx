@@ -1,61 +1,56 @@
-'use client';
-import { useState } from 'react';
-
-export default function WaterOrderButton() {
-	const [loading, setLoading] = useState(false);
-
-	const handleOrder = () => {
-		setLoading(true);
-
-		const PRODUCT_ID = "124";
-
-		// Формуємо об'єкт з усіма полями, які ми бачили в Payload
-		const params = {
-			'add-to-cart': PRODUCT_ID,
-		};
-
-		// Перетворюємо в Query String
-		const queryString = new URLSearchParams(params).toString();
-
-		// Фінальна лінка на чекаут з прокинутими даними
-		const orderUrl = `https://dzherelna.rv.ua/checkout/?${queryString}`;
-
-		// Невелика затримка для ефекту "обробки"
-		setTimeout(() => {
-			window.location.href = orderUrl;
-		}, 600);
-	};
+export default function WaterOrderLink() {
+	const PRODUCT_ID = "124";
+	const orderUrl = `https://dzherelna.rv.ua/checkout/?add-to-cart=${PRODUCT_ID}`;
 
 	return (
-		<div className="flex flex-col items-center gap-4 p-6 border border-blue-100 rounded-3xl bg-blue-50/30 shadow-sm">
-			<div className="text-center">
-							<p className="text-sm text-slate-500 font-medium">Острозька джерельна</p>
-			</div>
-
-			<button
-				onClick={handleOrder}
-				disabled={loading}
-				className={`
-          relative overflow-hidden group
-          flex items-center gap-3 px-10 py-4 
-          bg-blue-600 hover:bg-blue-700 text-white 
-          rounded-2xl font-bold text-lg shadow-xl transition-all 
-          active:scale-95 disabled:opacity-70 disabled:active:scale-100
-        `}
+		<div className="max-w-sm mx-auto my-6">
+			<a
+				href={orderUrl}
+				className="
+          flex items-center gap-5 p-4
+          bg-[#F8FAFC] active:bg-[#F1F5F9]
+          rounded-[24px] transition-all
+          group
+        "
 			>
-        <span className={`text-2xl transition-transform ${loading ? 'animate-bounce' : 'group-hover:scale-125'}`}>
-          {loading ? '⌛' : '💧'}
-        </span>
+				{/* Кругла іконка з легким градієнтом */}
+				<div className="
+          flex items-center justify-center
+          w-14 h-14 rounded-full
+          bg-gradient-to-br from-blue-500 to-blue-600
+          shadow-[0_4px_12px_rgba(59,130,246,0.3)]
+          group-active:scale-90 transition-transform
+        ">
+					<span className="text-2xl text-white">💧</span>
+				</div>
 
-				<span className="tracking-tight">
-          {loading ? 'Оформлення...' : 'Замовити воду'}
-        </span>
+				{/* Текстовий блок */}
+				<div className="flex flex-col flex-grow">
+          <span className="text-[17px] font-bold text-slate-900 leading-tight">
+            Острозька джерельна
+          </span>
+					<span className="text-[14px] text-slate-500 font-medium mt-0.5">
+            18.9 л • 100 ₴
+          </span>
+				</div>
 
-				{/* Декоративний ефект завантаження на кнопці */}
-				{loading && (
-					<div className="absolute bottom-0 left-0 h-1 bg-blue-400 w-full animate-pulse" />
-				)}
-			</button>
+				{/* Нативна стрілочка */}
+				<div className="pr-2">
+					<svg
+						width="20" height="20"
+						viewBox="0 0 24 24" fill="none"
+						stroke="#94A3B8" strokeWidth="2.5"
+						strokeLinecap="round" strokeLinejoin="round"
+					>
+						<path d="m9 18 6-6-6-6"/>
+					</svg>
+				</div>
+			</a>
+
+			{/* Підказка знизу */}
+			<p className="text-center text-[11px] text-slate-400 mt-3 font-medium tracking-tight">
+				Затисніть для вибору браузера
+			</p>
 		</div>
 	);
 }

@@ -32,7 +32,7 @@ export async function GET() {
 		if (!data || data.length === 0) return NextResponse.json({ status: "No data" });
 
 		const nowUTC = new Date();
-		const KYIV_OFFSET = 2 * 60 * 60 * 1000;
+		const KYIV_OFFSET = 2 * 60 * 60 * 1000; // +2 UTC
 		const nowKyiv = new Date(nowUTC.getTime() + KYIV_OFFSET);
 		const todayStr = nowKyiv.toLocaleDateString("uk-UA").replace(/\./g, ".");
 
@@ -49,18 +49,19 @@ export async function GET() {
 			// 1. ПЕРЕВІРКА ЗМІНИ ГРАФІКУ
 			const lastScheduleHash = await redis.get("last_schedule_state");
 			if (lastScheduleHash && lastScheduleHash !== currentScheduleRaw) {
-				notificationTitle = "🔄 Графік ЗМІНИВСЯ!";
-				notificationBody = "Обленерго оновило години відключень.";
+				notificationTitle = "🔄 Графік змінено!";
+				notificationBody = "Обленерго оновило розклад.";
 			}
 			await redis.set("last_schedule_state", currentScheduleRaw);
 
-			// 2. ПЕРЕВІРКА НАБЛИЖЕННЯ ПОДІЇ
+			// 2. ПЕРЕВІРКА НАБЛИЖЕННЯ ПОДІЇ (Тільки якщо графік не мінявся щойно)
 			if (!notificationTitle) {
 				for (const interval of intervals) {
 					const [startStr, endStr] = interval.split("-").map(s => s.trim());
 					const start = new Date(nowKyiv);
 					const [sh, sm] = startStr.split(":").map(Number);
 					start.setHours(sh, sm, 0, 0);
+
 					const end = new Date(nowKyiv);
 					const [eh, em] = endStr.split(":").map(Number);
 					end.setHours(eh, em, 0, 0);
@@ -69,23 +70,22 @@ export async function GET() {
 					const diffEnd = (end.getTime() - nowKyiv.getTime()) / 60000;
 
 					if (diffStart >= -2 && diffStart <= 25) {
-						const when = diffStart <= 0 ? "ПРЯМО ЗАРАЗ!" : `через ${Math.round(diffStart)} хв`;
-						notificationTitle = "⚠️ Увага! ВИМКНЕННЯ";
-						notificationBody = `Світло зникає ${when} (о ${startStr})`;
+						const when = diffStart <= 0 ? "зараз" : `${Math.round(diffStart)} хв`;
+						notificationTitle = `⚠️ Вимкнення: ${when}`;
+						notificationBody = `Світла не буде о ${startStr}`;
 						break;
 					} else if (diffEnd >= -2 && diffEnd <= 25) {
-						const when = diffEnd <= 0 ? "ВЖЕ Є!" : `через ${Math.round(diffEnd)} хв`;
-						notificationTitle = "✅ Світло ПОВЕРТАЄТЬСЯ";
-						notificationBody = `Електроенергія буде ${when} (о ${endStr})`;
+						const when = diffEnd <= 0 ? "зараз" : `${Math.round(diffEnd)} хв`;
+						notificationTitle = `✅ Увімкнення: ${when}`;
+						notificationBody = `Світло буде о ${endStr}`;
 						break;
 					}
 				}
 			}
 		}
 
-		// --- ЛОГІКА РЕЖИМУ ТИШІ (Silence Mode) ---
+		// --- ЛОГІКА РЕЖИМУ ТИШІ ---
 		const currentHour = nowKyiv.getHours();
-		// Якщо година >= 23 або < 7 — ми НЕ відправляємо пуш
 		const isSilenceTime = currentHour >= 23 || currentHour < 7;
 
 		if (notificationTitle && !isSilenceTime) {

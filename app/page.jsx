@@ -134,7 +134,7 @@ export default function HomePage() {
 				{/* Фонові ефекти */}
 				<div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-900/20 rounded-full blur-[120px] pointer-events-none" />
 
-				<div className="max-w-md w-full bg-slate-900/80 backdrop-blur-md border border-slate-800 p-8 rounded-2xl space-y-6 shadow-2xl relative z-10">
+				<div className="max-w-md w-full bg-slate-900/80 backdrop-blur-md border border-slate-800 p-5 rounded-2xl space-y-6 shadow-2xl relative z-10">
 
 					{/* Кнопка ВІДКРИТИ СВІТЛО */}
 					<div className="relative group w-full cursor-pointer touch-manipulation" onClick={() => setShowLight(true)}>
