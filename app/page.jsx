@@ -71,6 +71,14 @@ export default function HomePage() {
 							{/* Бейдж NEW теж анімуємо */}
 							<span className="absolute -top-2 -right-2 bg-gradient-to-r from-red-500 to-pink-600 text-white text-[10px] font-black px-3 py-1 rounded-full border-2 border-slate-900 shadow-lg animate-pulse z-20">NEW</span>
 						</div>
+
+
+						<Link href="/shadows" className="group relative block w-full">
+							<div className="absolute -inset-0.5 bg-gradient-to-r from-orange-400 to-yellow-500 rounded-xl blur opacity-30 group-hover:opacity-75 transition duration-200"></div>
+							<div className="relative block w-full text-center px-6 py-4 bg-slate-800/80 border border-white/5 rounded-xl font-bold text-lg transition-all duration-200 hover:scale-[1.02] hover:bg-orange-900/50 hover:border-orange-500/50 active:scale-95">
+								🕵️‍♀️ Вгадай Тінь
+							</div>
+						</Link>
 					</div>
 
 					{/* <WaterOrderButton /> */}
