@@ -27,27 +27,17 @@ function getRedis() {
 	return redisInstance;
 }
 
-// --- ФУНКЦІЯ ОТРИМАННЯ ДАНИХ (Updated v5 + Fast Timeout) ---
+// --- ФУНКЦІЯ ОТРИМАННЯ ДАНИХ (NO CACHE MODE) ---
 async function getScheduleData(redis) {
-	const CACHE_KEY = "schedule_full_cache_v5"; // 🔥 СИНХРОНІЗОВАНО З ВІДЖЕТОМ
+	const CACHE_KEY = "schedule_full_cache_v5";
 
-	// 1. Спочатку пробуємо взяти з кешу
-	try {
-		const cached = await redis.get(CACHE_KEY);
-		if (cached) {
-			console.log("✅ Cron: Using Redis Cache (v5)");
-			return JSON.parse(cached).data;
-		}
-	} catch (e) {
-		console.warn("Redis read error:", e.message);
-	}
+	console.log("🚀 Cron: FORCED FETCH. Ігноруємо кеш, качаємо свіже...");
 
-	console.log("⚠️ Cron: Cache MISS. Fetching live data...");
-
-	// 2. Парсинг (якщо кешу нема) з таймаутом 6 сек
+	// 1. ЗАВЖДИ КАЧАЄМО З САЙТУ
 	try {
 		const controller = new AbortController();
-		const timeoutId = setTimeout(() => controller.abort(), 6000); // ⚡ 6 сек ліміт
+		// Даємо максимум часу для Vercel (9 секунд)
+		const timeoutId = setTimeout(() => controller.abort(), 9000);
 
 		const resp = await fetch("https://www.roe.vsei.ua/disconnections", {
 			cache: 'no-store',
@@ -60,15 +50,14 @@ async function getScheduleData(redis) {
 		clearTimeout(timeoutId);
 
 		if (!resp.ok) {
-			console.error(`❌ Fetch failed: ${resp.status}`);
-			return null;
+			throw new Error(`HTTP Status: ${resp.status}`);
 		}
 
 		const html = await resp.text();
 		const root = parse(html);
 		const table = root.querySelector("table");
 
-		if (!table) return null;
+		if (!table) throw new Error("No table found");
 
 		const rows = table.querySelectorAll("tr");
 		const data = rows.map((row) =>
@@ -78,17 +67,23 @@ async function getScheduleData(redis) {
 			})
 		).filter(r => r.length > 0);
 
-		console.log(`✅ Scraped ${data.length} rows. Saving to Redis v5.`);
+		console.log(`✅ Scraped ${data.length} rows. UPDATING REDIS.`);
 
-		// Зберігаємо в той самий ключ, що і віджет!
-		// Додаємо timestamp, щоб віджет знав, наскільки дані свіжі
+		// Оновлюємо базу СВІЖИМИ даними
 		const cacheObj = { data, timestamp: Date.now() };
 		await redis.set(CACHE_KEY, JSON.stringify(cacheObj), "EX", 3600);
 
 		return data;
+
 	} catch (e) {
-		console.error("❌ Scrape error:", e.name === 'AbortError' ? 'TIMEOUT (6s)' : e.message);
-		return null;
+		console.error("❌ Scrape FAILED:", e.message);
+
+		// АВАРІЙНИЙ ПЛАН:
+		// Тільки якщо сайт ліг або таймаут — беремо старе з бази,
+		// просто щоб скрипт зміг перевірити час (може світло вимикати пора, а сайт не робить)
+		console.log("⚠️ Fallback: Reading stale data from Redis...");
+		const cached = await redis.get(CACHE_KEY);
+		return cached ? JSON.parse(cached).data : null;
 	}
 }
 
@@ -99,57 +94,53 @@ export async function GET() {
 	try {
 		const data = await getScheduleData(redis);
 
-		// Якщо даних немає - ми нічого не можемо зробити
 		if (!data || data.length === 0) {
-			return NextResponse.json({
-				status: "No data or scrape failed",
-				hint: "Possible timeout or block. Check Redis v5 key."
-			});
+			return NextResponse.json({ status: "No data available (Source failed)" });
 		}
 
-		// 🔥 ЧАС І ДАТА (Universal Fix)
+		// --- ДАЛІ ВСЯ ЛОГІКА ПЕРЕВІРОК ЗАЛИШАЄТЬСЯ ---
 		const nowKyivStr = new Date().toLocaleString("en-US", { timeZone: "Europe/Kiev" });
 		const nowKyiv = new Date(nowKyivStr);
-
 		const d = String(nowKyiv.getDate()).padStart(2, '0');
 		const m = String(nowKyiv.getMonth() + 1).padStart(2, '0');
 		const y = nowKyiv.getFullYear();
 		const todayStr = `${d}.${m}.${y}`;
 
-		const todayRow = data.find((r) => r[0].trim() === todayStr);
 		const QUEUE_INDEX = 9; // Черга 5.1
 
-		if (!todayRow) {
-			return NextResponse.json({ status: `No row for date ${todayStr}` });
-		}
-
-		const currentScheduleRaw = todayRow[QUEUE_INDEX] || "";
-		const intervals = currentScheduleRaw.match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/g) || [];
+		// 1. ПЕРЕВІРКА ЗМІНИ ГРАФІКУ (ВСІ ДНІ)
+		const fullScheduleSignature = data
+			.map(row => `${row[0]?.trim()}:${row[QUEUE_INDEX]?.trim()}`)
+			.join("|");
 
 		let notificationTitle = "";
 		let notificationBody = "";
 		let eventId = "";
 
-		// 1. ЗМІНА ГРАФІКУ
-		const lastScheduleHash = await redis.get("last_schedule_state");
+		const lastFullHash = await redis.get("last_full_schedule_hash");
 
-		if (lastScheduleHash && lastScheduleHash !== currentScheduleRaw) {
-			const changeKey = `sent_change:${todayStr}:${currentScheduleRaw.length}`;
+		if (lastFullHash && lastFullHash !== fullScheduleSignature) {
+			const changeKey = `sent_update:${todayStr}:${fullScheduleSignature.length}`;
 			const alreadySentChange = await redis.get(changeKey);
 
 			if (!alreadySentChange) {
 				notificationTitle = "🔄 Графік оновлено!";
-				notificationBody = "Рівнеобленерго змінило години відключень.";
+				notificationBody = "Увага! Рівнеобленерго змінило години відключень.";
 				eventId = changeKey;
 			}
 		}
 
-		if (lastScheduleHash !== currentScheduleRaw) {
-			await redis.set("last_schedule_state", currentScheduleRaw);
+		if (lastFullHash !== fullScheduleSignature) {
+			await redis.set("last_full_schedule_hash", fullScheduleSignature);
 		}
 
-		// 2. ЧАС (Перевірка на 35 хвилин)
-		if (!notificationTitle) {
+		// 2. ПЕРЕВІРКА ЧАСУ (СЬОГОДНІ)
+		const todayRow = data.find((r) => r[0].trim() === todayStr);
+
+		if (todayRow && !notificationTitle) {
+			const currentScheduleRaw = todayRow[QUEUE_INDEX] || "";
+			const intervals = currentScheduleRaw.match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/g) || [];
+
 			for (const interval of intervals) {
 				const [startStr, endStr] = interval.split("-").map(s => s.trim());
 
@@ -164,7 +155,7 @@ export async function GET() {
 				const diffStart = (start.getTime() - nowKyiv.getTime()) / 60000;
 				const diffEnd = (end.getTime() - nowKyiv.getTime()) / 60000;
 
-				// СКОРО ВИМКНЕННЯ (35 хв)
+				// 35 хв до вимкнення
 				if (diffStart >= 0 && diffStart <= 35) {
 					const key = `sent:off:${todayStr}:${startStr}`;
 					const isSent = await redis.get(key);
@@ -177,7 +168,7 @@ export async function GET() {
 					}
 				}
 
-				// СКОРО УВІМКНЕННЯ (30 хв)
+				// 30 хв до увімкнення
 				if (diffEnd >= 0 && diffEnd <= 30) {
 					const key = `sent:on:${todayStr}:${endStr}`;
 					const isSent = await redis.get(key);
@@ -192,7 +183,7 @@ export async function GET() {
 			}
 		}
 
-		// --- ВІДПРАВКА ---
+		// ВІДПРАВКА
 		if (!notificationTitle || !eventId) {
 			return NextResponse.json({ status: "Checked. Nothing to send.", time: nowKyiv.toLocaleTimeString() });
 		}
