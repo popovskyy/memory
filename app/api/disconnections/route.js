@@ -22,77 +22,102 @@ function getRedis() {
 
 export async function GET() {
 	const redis = getRedis();
-	let resultData = null;
+
+	// Змінні для результату
+	let cachedData = null;
+	let finalData = null;
+	const CACHE_TTL_SECONDS = 180; // Вважаємо свіжим 3 хв
 
 	try {
-		// --- ЕТАП 1: Redis (ШВИДКО) ---
+		// --- ЕТАП 1: Читаємо Redis (навіть якщо старе) ---
 		if (redis) {
 			try {
-				if (redis.status !== "ready" && redis.status !== "connecting") {
-					await redis.connect().catch(() => {});
-				}
-				const cached = await redis.get("schedule_full_cache");
-				if (cached) {
-					resultData = JSON.parse(cached);
+				const rawCache = await redis.get("schedule_full_cache_v2"); // змінив ключ, щоб скинути старе
+				if (rawCache) {
+					cachedData = JSON.parse(rawCache);
 				}
 			} catch (e) {
-				console.warn("Redis skip:", e.message);
+				console.warn("Redis read error:", e.message);
 			}
 		}
 
-		// --- ЕТАП 2: Парсинг (ПЛАН Б) ---
-		if (!resultData || !resultData.data || resultData.data.length === 0) {
-			console.log("⚠️ Cache MISS. Fetching live data...");
+		const now = Date.now();
+		const cacheAge = cachedData ? (now - (cachedData.timestamp || 0)) / 1000 : 999999;
 
-			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), 8000);
+		// --- ЕТАП 2: Вирішуємо, чи треба оновлювати ---
+		// Оновлюємо, якщо кешу немає АБО він старіший за 3 хвилини
+		if (!cachedData || cacheAge > CACHE_TTL_SECONDS) {
+			console.log(`⚠️ Cache stale (age: ${cacheAge}s). Fetching live data...`);
 
-			const resp = await fetch("https://www.roe.vsei.ua/disconnections", {
-				cache: "no-store",
-				headers: {
-					"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
-				},
-				signal: controller.signal
-			});
-			clearTimeout(timeoutId);
+			try {
+				const controller = new AbortController();
+				// Збільшив таймаут до 9 сек (Vercel hobby ліміт 10с, даємо запас 1с)
+				const timeoutId = setTimeout(() => controller.abort(), 9000);
 
-			if (!resp.ok) throw new Error("Source error");
+				const resp = await fetch("https://www.roe.vsei.ua/disconnections", {
+					cache: "no-store",
+					headers: {
+						"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+					},
+					signal: controller.signal
+				});
+				clearTimeout(timeoutId);
 
-			const html = await resp.text();
-			const root = parse(html);
-			const table = root.querySelector("table");
+				if (!resp.ok) throw new Error(`Source error: ${resp.status}`);
 
-			if (!table) throw new Error("No table found");
+				const html = await resp.text();
+				const root = parse(html);
+				const table = root.querySelector("table");
 
-			const rows = table.querySelectorAll("tr");
-			const data = rows.map((row) =>
-				row.querySelectorAll("td, th").map((col) => {
-					// 🔥 ФІКС для нового сайту: шукаємо <p> всередині комірок
-					const ps = col.querySelectorAll("p");
-					// Якщо є <p>, склеюємо через пробіл, інакше беремо просто текст
-					return ps.length > 0 ? ps.map(p => p.text.trim()).join(" ") : col.text.trim();
-				})
-			).filter(r => r.length > 0); // Прибираємо пусті рядки
+				if (!table) throw new Error("No table found");
 
-			resultData = { data };
+				const rows = table.querySelectorAll("tr");
+				const data = rows.map((row) =>
+					row.querySelectorAll("td, th").map((col) => {
+						const ps = col.querySelectorAll("p");
+						return ps.length > 0 ? ps.map(p => p.text.trim()).join(" ") : col.text.trim();
+					})
+				).filter(r => r.length > 0);
 
-			// 🔥 ЗБЕРІГАЄМО В REDIS на 3 хвилини (180 секунд) 🔥
-			if (redis) {
-				await redis.set("schedule_full_cache", JSON.stringify(resultData), "EX", 180);
-				console.log("💾 Saved live data to Redis (3 min TTL)");
+				// Формуємо новий об'єкт
+				finalData = { data, timestamp: now };
+
+				// Зберігаємо в Redis (живе 1 годину фізично, але логічно протухає за 3 хв)
+				if (redis) {
+					await redis.set("schedule_full_cache_v2", JSON.stringify(finalData), "EX", 3600);
+					console.log("💾 Updated Redis cache");
+				}
+
+			} catch (fetchError) {
+				console.error("❌ Fetch failed:", fetchError.message);
+
+				// --- ПЛАН Б (Рятувальний жилет) ---
+				// Якщо сайт впав, але у нас є старий кеш - віддаємо його!
+				if (cachedData) {
+					console.log("⚠️ Serving STALE data from Redis due to fetch error");
+					finalData = cachedData;
+				} else {
+					// Якщо немає нічого - тоді вже помилка
+					throw fetchError;
+				}
 			}
+		} else {
+			// Кеш свіжий, беремо його
+			finalData = cachedData;
+			console.log("✅ Serving fresh data from Redis");
 		}
 
 		// --- ЕТАП 3: Відповідь ---
-		const response = NextResponse.json(resultData);
+		const response = NextResponse.json(finalData);
 
-		// Браузер/CDN теж кешує лише на 3 хв (180 сек)
+		// Headers: кажемо браузеру "кешуй на 3 хв, але якщо що - юзай старе ще 1 хв"
 		response.headers.set('Cache-Control', 'public, s-maxage=180, stale-while-revalidate=60');
 
 		return response;
 
 	} catch (err) {
-		console.error("API Error:", err.message);
+		console.error("API Fatal Error:", err.message);
+		// Повертаємо пустий масив, щоб фронтенд не падав, а писав "Дані недоступні"
 		return NextResponse.json({ error: "Server Error", data: [] }, { status: 500 });
 	}
 }
