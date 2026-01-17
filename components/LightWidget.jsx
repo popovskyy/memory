@@ -23,7 +23,6 @@ const IconHome = ({ className }) => (
 	</svg>
 );
 
-// --- ⚡ СПЕЦЕФЕКТИ (SVG) ---
 const PlasmaBolt = ({ className, style }) => (
 	<svg viewBox="0 0 24 50" fill="currentColor" className={`absolute pointer-events-none ${className}`} style={style}>
 		<path d="M12 0 L0 30 L10 35 L5 50 L24 20 L14 15 L20 0 Z" />
@@ -42,9 +41,8 @@ export default function LightWidget({ onToggle }) {
 		error: false
 	});
 
-	const QUEUE_INDEX = 9;
+	const QUEUE_INDEX = 9; // Черга 5.1
 
-	// --- ЛОГІКА ---
 	const getTodayString = () => {
 		const d = new Date();
 		const day = String(d.getDate()).padStart(2, '0');
@@ -137,7 +135,7 @@ export default function LightWidget({ onToggle }) {
           75% { transform: translate(1px, -1px); }
           100% { transform: translate(0,0); }
         }
-        .animate-flash-1 { animation: flash-bolt 0.6s infinite; animation-delay: 0s; }
+        .animate-flash-1 { animation: flash-bolt 0.6s infinite; }
         .animate-flash-2 { animation: flash-bolt 0.8s infinite; animation-delay: 0.3s; }
         .animate-flash-3 { animation: flash-bolt 1.2s infinite; animation-delay: 0.5s; }
         .animate-spin-slow { animation: spin-slow 8s linear infinite; }
@@ -167,40 +165,30 @@ export default function LightWidget({ onToggle }) {
 							</div>
 						</div>
 
-						{/* === КАРТКА З АНІМАЦІЄЮ (Зменшена) === */}
-						{/* Зменшив padding: p-8 -> p-6 */}
+						{/* ГЛАВНАЯ КАРТОЧКА С ТЕСЛА-АНИМАЦИЕЙ */}
 						<div className={`relative rounded-3xl p-6 border transition-all duration-500 overflow-hidden mb-6 ${status.isOff ? "bg-gradient-to-br from-red-950 to-slate-900 border-red-900/50" : "bg-gradient-to-br from-cyan-950 to-slate-900 border-cyan-900/50"}`}>
 
 							{!loading && !status.error && (
 								<>
-									{/* Зменшив блік: w-48 h-48 -> w-40 h-40, blur-[60px] -> blur-[50px] */}
 									<div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-40 h-40 rounded-full blur-[50px] opacity-40 animate-pulse" style={{ backgroundColor: glowColor }}></div>
-
-									{/* Зменшив блискавки */}
 									<PlasmaBolt className={`top-2 -left-4 w-10 h-20 ${boltColor} animate-flash-1`} />
 									<PlasmaBolt className={`bottom-2 -right-4 w-12 h-28 ${boltColor} animate-flash-2 rotate-180`} />
 									<PlasmaBolt className={`-top-8 right-8 w-6 h-16 ${boltColor} animate-flash-3 rotate-45`} />
+									<div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-36 h-36 border-2 border-dashed rounded-full opacity-20 animate-spin-slow" style={{ borderColor: status.isOff ? 'red' : 'cyan' }}></div>
 								</>
 							)}
 
 							<div className="relative flex flex-col items-center text-center gap-3 z-10">
-
-								{/* ІКОНКА: Зменшив p-5 -> p-4, w-14 h-14 -> w-12 h-12 */}
 								<div className={`relative p-4 rounded-full shadow-2xl transition-all duration-500 border border-white/10 ${status.isOff ? "bg-red-500/20 shadow-red-500/40" : "bg-cyan-500/20 shadow-cyan-500/40"}`}>
 									{!loading && !status.error && (
 										<div className="absolute inset-0 rounded-full border-2 border-white/20 animate-ping opacity-30"></div>
 									)}
 									<IconZap className={`w-12 h-12 ${status.isOff ? "text-red-400" : "text-cyan-300"} ${!loading && "animate-jitter"}`} />
 								</div>
-
 								<div>
-									{/* ЗАГОЛОВОК: Зменшив text-4xl -> text-3xl */}
 									<h2 className={`text-3xl font-black tracking-tight mb-2 drop-shadow-xl ${status.isOff ? "text-red-100" : "text-cyan-100"}`}>
-										{loading ? "Завантаження..." :
-											status.error ? "Помилка" :
-												status.isOff ? "Світла НЕМАЄ" : "Світло Є"}
+										{loading ? "Завантаження..." : status.error ? "Помилка" : status.isOff ? "Світла НЕМАЄ" : "Світло Є"}
 									</h2>
-									{/* ПІДЗАГОЛОВОК: Зменшив px-4 py-1.5 -> px-3 py-1, text-sm -> text-xs */}
 									<div className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-950/60 border border-white/10 backdrop-blur-md shadow-lg">
 										<IconClock className="w-4 h-4 text-slate-400" />
 										<span className="text-xs font-bold text-slate-200 tracking-wide">{status.text}</span>
@@ -209,13 +197,11 @@ export default function LightWidget({ onToggle }) {
 							</div>
 						</div>
 
+						{/* СЕГОДНЯШНИЙ ГРАФИК */}
 						<div className="space-y-3">
-							{/* ... (Список без змін) */}
 							<div className="flex items-center gap-2 px-2 opacity-70">
 								<div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
-								<h3 className="text-sm font-bold uppercase tracking-widest text-white">
-									Сьогодні ({getTodayString()})
-								</h3>
+								<h3 className="text-sm font-bold uppercase tracking-widest text-white">Сьогодні ({getTodayString()})</h3>
 							</div>
 							{status.intervals.length > 0 ? (
 								status.intervals.map((interval, i) => (
@@ -233,16 +219,19 @@ export default function LightWidget({ onToggle }) {
 							)}
 						</div>
 
+						{/* НОВЫЙ ДИЗАЙН СЕКЦИИ "НАСТУПНІ ДНІ" */}
 						{rows.length > 0 && (
-							<div className="mt-8 pt-4 border-t border-slate-800/50">
-								{/* ... (Наступні дні без змін) */}
-								<h3 className="text-sm font-bold uppercase tracking-widest px-2 mb-4 opacity-70">Наступні дні</h3>
-								<div className="grid gap-3 opacity-80">
+							<div className="mt-10 pt-6 border-t border-slate-800/80">
+								<div className="flex items-center justify-between px-2 mb-5">
+									<h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Прогноз на тиждень</h3>
+									<div className="h-px flex-1 ml-4 bg-gradient-to-r from-slate-800 to-transparent" />
+								</div>
+								<div className="grid gap-4">
 									{(() => {
 										const todayStr = getTodayString();
 										const todayIndex = rows.findIndex((r) => r[0].trim() === todayStr);
 										const futureRows = todayIndex !== -1 ? rows.slice(todayIndex + 1) : rows;
-										if (futureRows.length === 0) return <div className="text-xs text-slate-500 px-2">Більше даних немає</div>;
+										if (futureRows.length === 0) return <div className="text-xs text-center text-slate-600 py-4 italic">Більше прогнозів поки немає</div>;
 										return futureRows.map((row, i) => {
 											const raw = row[QUEUE_INDEX];
 											const intervals = parseIntervals(raw);
@@ -251,15 +240,32 @@ export default function LightWidget({ onToggle }) {
 											const d = parts[0];
 											const m = parts[1];
 											return (
-												<div key={i} className="flex items-center gap-4 p-3 bg-slate-900 border border-slate-800 rounded-xl">
-													<div className="flex flex-col items-center justify-center w-12 h-12 bg-slate-800 rounded-lg font-bold border border-slate-700">
-														<span className="text-lg">{d}</span><span className="text-[10px] text-slate-500 uppercase">{m}</span>
+												<div key={i} className="group relative overflow-hidden flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-slate-900/40 to-slate-900/20 border border-slate-800/50 hover:border-slate-700/80 transition-all duration-300">
+													<div className="flex flex-col items-center justify-center min-w-[56px] h-[56px] bg-slate-800/80 rounded-xl border border-white/5 shadow-inner group-hover:bg-slate-700 transition-colors">
+														<span className="text-xl font-black text-white leading-none">{d}</span>
+														<span className="text-[10px] font-bold text-indigo-400 uppercase mt-1 tracking-tighter">{m}</span>
 													</div>
 													<div className="flex-1">
-														{isWaiting ? <span className="text-yellow-600 text-sm font-medium">Очікується...</span> :
-															intervals.length > 0 ? <div className="text-sm text-slate-300 font-mono">{intervals.join(", ")}</div> :
-																<span className="text-slate-500 text-xs">Немає відключень</span>}
+														<div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">ГПВ</div>
+														{isWaiting ? (
+															<div className="flex items-center gap-1.5">
+																<div className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
+																<span className="text-sm font-bold text-yellow-600/90 italic">Очікується...</span>
+															</div>
+														) : intervals.length > 0 ? (
+															<div className="flex flex-wrap gap-1.5">
+																{intervals.map((interval, idx) => (
+																	<span key={idx} className="px-2 py-1 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-mono font-bold">{interval}</span>
+																))}
+															</div>
+														) : (
+															<div className="text-sm font-bold text-emerald-500/80 flex items-center gap-1.5">
+																<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
+																Без обмежень
+															</div>
+														)}
 													</div>
+													<div className="absolute right-0 top-0 bottom-0 w-1 bg-gradient-to-b from-transparent via-slate-700/20 to-transparent" />
 												</div>
 											)
 										})

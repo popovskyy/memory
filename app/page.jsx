@@ -87,12 +87,6 @@ export default function HomePage() {
 							</div>
 						</Link>
 					</div>
-
-					{/* <WaterOrderButton /> */}
-
-					<div className="pt-2 opacity-80 hover:opacity-100 transition-opacity">
-						<PushManager />
-					</div>
 				</div>
 			</div>
 		</main>
