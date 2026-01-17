@@ -9,28 +9,20 @@ export function LightProvider({ children }) {
 	const [loading, setLoading] = useState(true);
 
 	const fetchData = async () => {
-		setLoading(true);
 		try {
-			// Додаємо t=Date.now() щоб обійти кеш браузера на iPhone
-			const res = await fetch(`/api/disconnections?t=${Date.now()}`, {
+			//nocache ламає кеш Safari на iPhone
+			const res = await fetch(`/api/disconnections?nocache=${Date.now()}`, {
 				cache: 'no-store',
-				headers: { 'Cache-Control': 'no-cache' }
+				headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
 			});
 
-			if (!res.ok) throw new Error("Fetch failed");
 			const json = await res.json();
-
 			if (json.data) {
-				// Фільтруємо лише рядки з датами DD.MM.YYYY
-				const cleanRows = json.data.filter(r =>
-					r[0] && r[0].match(/^\d{2}\.\d{2}\.\d{4}$/)
-				);
-				setRows(cleanRows);
-				localStorage.setItem("light-data", JSON.stringify(cleanRows));
+				setRows(json.data);
+				localStorage.setItem("light-data", JSON.stringify(json.data));
 			}
 		} catch (err) {
-			console.error("Context Error:", err);
-			// Спроба взяти старе з localStorage якщо мережа впала
+			console.error("Fetch error:", err);
 			const local = localStorage.getItem("light-data");
 			if (local) setRows(JSON.parse(local));
 		} finally {
@@ -40,8 +32,7 @@ export function LightProvider({ children }) {
 
 	useEffect(() => {
 		fetchData();
-		// Оновлюємо кожні 10 хвилин поки вкладка відкрита
-		const interval = setInterval(fetchData, 600000);
+		const interval = setInterval(fetchData, 300000); // 5 хв
 		return () => clearInterval(interval);
 	}, []);
 
