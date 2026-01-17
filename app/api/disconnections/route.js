@@ -5,13 +5,13 @@ import { NextResponse } from "next/server";
 import { parse } from "node-html-parser";
 import Redis from "ioredis";
 
-// Глобальне підключення
+// Глобальне підключення до Redis
 let redisInstance = null;
 function getRedis() {
 	if (!process.env.REDIS_URL) return null;
 	if (!redisInstance) {
 		redisInstance = new Redis(process.env.REDIS_URL, {
-			connectTimeout: 3000,
+			connectTimeout: 5000, // Зменшили таймаут підключення
 			lazyConnect: true,
 			retryStrategy: null
 		});
@@ -22,102 +22,104 @@ function getRedis() {
 
 export async function GET() {
 	const redis = getRedis();
+	const CACHE_KEY = "schedule_full_cache_v5"; // Новий ключ v5
+	const CACHE_TTL = 3600; // Зберігаємо на 1 годину (але логічно оновлюємо частіше)
 
-	// Змінні для результату
-	let cachedData = null;
 	let finalData = null;
-	const CACHE_TTL_SECONDS = 180; // Вважаємо свіжим 3 хв
+	let source = "none";
 
 	try {
-		// --- ЕТАП 1: Читаємо Redis (навіть якщо старе) ---
+		// --- 1. СПРОБА ВЗЯТИ З КЕШУ ---
 		if (redis) {
 			try {
-				const rawCache = await redis.get("schedule_full_cache_v2"); // змінив ключ, щоб скинути старе
-				if (rawCache) {
-					cachedData = JSON.parse(rawCache);
+				const cached = await redis.get(CACHE_KEY);
+				if (cached) {
+					const parsed = JSON.parse(cached);
+					// Якщо даним менше 5 хвилин - віддаємо їх і не мучимо сайт
+					const age = (Date.now() - (parsed.timestamp || 0)) / 1000;
+					if (age < 300) {
+						console.log(`✅ Cache hit (${Math.round(age)}s old)`);
+						return responseJson(parsed);
+					}
+					// Якщо старі - запам'ятовуємо як резерв
+					finalData = parsed;
+					source = "stale_cache";
 				}
 			} catch (e) {
-				console.warn("Redis read error:", e.message);
+				console.warn("Redis read fail:", e.message);
 			}
 		}
 
-		const now = Date.now();
-		const cacheAge = cachedData ? (now - (cachedData.timestamp || 0)) / 1000 : 999999;
+		// --- 2. СПРОБА СКАЧАТИ (FETCH) ---
+		console.log("⚠️ Fetching fresh data...");
 
-		// --- ЕТАП 2: Вирішуємо, чи треба оновлювати ---
-		// Оновлюємо, якщо кешу немає АБО він старіший за 3 хвилини
-		if (!cachedData || cacheAge > CACHE_TTL_SECONDS) {
-			console.log(`⚠️ Cache stale (age: ${cacheAge}s). Fetching live data...`);
+		try {
+			const controller = new AbortController();
+			// ⚡ ЖОРСТКИЙ ЛІМІТ 6 СЕКУНД.
+			// Якщо сайт не відповів за 6с, ми кидаємо помилку, щоб Vercel не вбив нас.
+			const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-			try {
-				const controller = new AbortController();
-				// Збільшив таймаут до 9 сек (Vercel hobby ліміт 10с, даємо запас 1с)
-				const timeoutId = setTimeout(() => controller.abort(), 9000);
+			const resp = await fetch("https://www.roe.vsei.ua/disconnections", {
+				cache: "no-store",
+				headers: {
+					// Прикидаємось браузером
+					"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+					"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+				},
+				signal: controller.signal
+			});
+			clearTimeout(timeoutId);
 
-				const resp = await fetch("https://www.roe.vsei.ua/disconnections", {
-					cache: "no-store",
-					headers: {
-						"User-Agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
-					},
-					signal: controller.signal
-				});
-				clearTimeout(timeoutId);
+			if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 
-				if (!resp.ok) throw new Error(`Source error: ${resp.status}`);
+			const html = await resp.text();
+			const root = parse(html);
+			const table = root.querySelector("table");
 
-				const html = await resp.text();
-				const root = parse(html);
-				const table = root.querySelector("table");
+			if (!table) throw new Error("Table not found");
 
-				if (!table) throw new Error("No table found");
+			const rows = table.querySelectorAll("tr");
+			const data = rows.map((row) =>
+				row.querySelectorAll("td, th").map((col) => {
+					const ps = col.querySelectorAll("p");
+					return ps.length > 0 ? ps.map(p => p.text.trim()).join(" ") : col.text.trim();
+				})
+			).filter(r => r.length > 0);
 
-				const rows = table.querySelectorAll("tr");
-				const data = rows.map((row) =>
-					row.querySelectorAll("td, th").map((col) => {
-						const ps = col.querySelectorAll("p");
-						return ps.length > 0 ? ps.map(p => p.text.trim()).join(" ") : col.text.trim();
-					})
-				).filter(r => r.length > 0);
+			// Успіх! Оновлюємо дані
+			finalData = { data, timestamp: Date.now() };
+			source = "live";
 
-				// Формуємо новий об'єкт
-				finalData = { data, timestamp: now };
-
-				// Зберігаємо в Redis (живе 1 годину фізично, але логічно протухає за 3 хв)
-				if (redis) {
-					await redis.set("schedule_full_cache_v2", JSON.stringify(finalData), "EX", 3600);
-					console.log("💾 Updated Redis cache");
-				}
-
-			} catch (fetchError) {
-				console.error("❌ Fetch failed:", fetchError.message);
-
-				// --- ПЛАН Б (Рятувальний жилет) ---
-				// Якщо сайт впав, але у нас є старий кеш - віддаємо його!
-				if (cachedData) {
-					console.log("⚠️ Serving STALE data from Redis due to fetch error");
-					finalData = cachedData;
-				} else {
-					// Якщо немає нічого - тоді вже помилка
-					throw fetchError;
-				}
+			// Зберігаємо в Redis
+			if (redis) {
+				// Ми не чекаємо await, щоб швидше віддати відповідь браузеру
+				redis.set(CACHE_KEY, JSON.stringify(finalData), "EX", CACHE_TTL).catch(e => console.error("Redis save err:", e));
 			}
-		} else {
-			// Кеш свіжий, беремо його
-			finalData = cachedData;
-			console.log("✅ Serving fresh data from Redis");
+
+		} catch (fetchErr) {
+			console.error(`❌ Fetch failed: ${fetchErr.name === 'AbortError' ? 'TIMEOUT (6s)' : fetchErr.message}`);
+
+			// Якщо скачати не вийшло, але у нас є старий кеш - це краще, ніж нічого
+			if (finalData) {
+				console.log("⚠️ Serving STALE data because fetch failed");
+			} else {
+				// Якщо немає нічого - це біда, але повертаємо пустий об'єкт, щоб не було 500 Error
+				return NextResponse.json({ error: "Data unavailable (Timeout)", data: [] }, { status: 503 });
+			}
 		}
 
-		// --- ЕТАП 3: Відповідь ---
-		const response = NextResponse.json(finalData);
-
-		// Headers: кажемо браузеру "кешуй на 3 хв, але якщо що - юзай старе ще 1 хв"
-		response.headers.set('Cache-Control', 'public, s-maxage=180, stale-while-revalidate=60');
-
-		return response;
+		// --- 3. ВІДПОВІДЬ ---
+		return responseJson(finalData);
 
 	} catch (err) {
-		console.error("API Fatal Error:", err.message);
-		// Повертаємо пустий масив, щоб фронтенд не падав, а писав "Дані недоступні"
-		return NextResponse.json({ error: "Server Error", data: [] }, { status: 500 });
+		console.error("Fatal Error:", err.message);
+		return NextResponse.json({ error: "Server Error", details: err.message }, { status: 500 });
 	}
+}
+
+// Допоміжна функція для заголовків
+function responseJson(data) {
+	const response = NextResponse.json(data);
+	response.headers.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=30');
+	return response;
 }

@@ -18,40 +18,49 @@ let redisInstance = null;
 function getRedis() {
 	if (!process.env.REDIS_URL) return null;
 	if (!redisInstance) {
-		redisInstance = new Redis(process.env.REDIS_URL);
+		redisInstance = new Redis(process.env.REDIS_URL, {
+			connectTimeout: 5000,
+			lazyConnect: true,
+			retryStrategy: null
+		});
 	}
 	return redisInstance;
 }
 
-// --- ФУНКЦІЯ ОТРИМАННЯ ДАНИХ ---
+// --- ФУНКЦІЯ ОТРИМАННЯ ДАНИХ (Updated v5 + Fast Timeout) ---
 async function getScheduleData(redis) {
-	// 1. Кеш (новий ключ v4, щоб скинути старе)
-	const CACHE_KEY = "schedule_full_cache_v4";
-	const cached = await redis.get(CACHE_KEY);
+	const CACHE_KEY = "schedule_full_cache_v5"; // 🔥 СИНХРОНІЗОВАНО З ВІДЖЕТОМ
 
-	if (cached) {
-		console.log("✅ Cron: Using Redis Cache");
-		return JSON.parse(cached).data;
+	// 1. Спочатку пробуємо взяти з кешу
+	try {
+		const cached = await redis.get(CACHE_KEY);
+		if (cached) {
+			console.log("✅ Cron: Using Redis Cache (v5)");
+			return JSON.parse(cached).data;
+		}
+	} catch (e) {
+		console.warn("Redis read error:", e.message);
 	}
 
 	console.log("⚠️ Cron: Cache MISS. Fetching live data...");
 
-	// 2. Парсинг (якщо кешу нема)
+	// 2. Парсинг (якщо кешу нема) з таймаутом 6 сек
 	try {
+		const controller = new AbortController();
+		const timeoutId = setTimeout(() => controller.abort(), 6000); // ⚡ 6 сек ліміт
+
 		const resp = await fetch("https://www.roe.vsei.ua/disconnections", {
-			cache: 'no-store', // Важливо для Vercel
+			cache: 'no-store',
 			headers: {
-				// 🔥 МАСКУВАННЯ: Прикидаємось звичайним Chrome на Windows
 				"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-				"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-				"Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7",
-				"Cache-Control": "no-cache",
-				"Pragma": "no-cache"
-			}
+				"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+			},
+			signal: controller.signal
 		});
+		clearTimeout(timeoutId);
 
 		if (!resp.ok) {
-			console.error(`❌ Fetch failed with status: ${resp.status}`);
+			console.error(`❌ Fetch failed: ${resp.status}`);
 			return null;
 		}
 
@@ -59,10 +68,7 @@ async function getScheduleData(redis) {
 		const root = parse(html);
 		const table = root.querySelector("table");
 
-		if (!table) {
-			console.error("❌ No table found in HTML");
-			return null;
-		}
+		if (!table) return null;
 
 		const rows = table.querySelectorAll("tr");
 		const data = rows.map((row) =>
@@ -72,13 +78,16 @@ async function getScheduleData(redis) {
 			})
 		).filter(r => r.length > 0);
 
-		console.log(`✅ Scraped ${data.length} rows. Saving to Redis.`);
+		console.log(`✅ Scraped ${data.length} rows. Saving to Redis v5.`);
 
-		// Зберігаємо на 1 годину
-		await redis.set(CACHE_KEY, JSON.stringify({ data }), "EX", 3600);
+		// Зберігаємо в той самий ключ, що і віджет!
+		// Додаємо timestamp, щоб віджет знав, наскільки дані свіжі
+		const cacheObj = { data, timestamp: Date.now() };
+		await redis.set(CACHE_KEY, JSON.stringify(cacheObj), "EX", 3600);
+
 		return data;
 	} catch (e) {
-		console.error("❌ Scrape fatal error:", e.message);
+		console.error("❌ Scrape error:", e.name === 'AbortError' ? 'TIMEOUT (6s)' : e.message);
 		return null;
 	}
 }
@@ -90,11 +99,11 @@ export async function GET() {
 	try {
 		const data = await getScheduleData(redis);
 
-		// Якщо парсинг не вдався - повертаємо деталі для дебагу
+		// Якщо даних немає - ми нічого не можемо зробити
 		if (!data || data.length === 0) {
 			return NextResponse.json({
 				status: "No data or scrape failed",
-				hint: "Check Vercel Logs for 'Scrape fatal error' or 'Fetch failed'"
+				hint: "Possible timeout or block. Check Redis v5 key."
 			});
 		}
 
@@ -111,7 +120,7 @@ export async function GET() {
 		const QUEUE_INDEX = 9; // Черга 5.1
 
 		if (!todayRow) {
-			return NextResponse.json({ status: `No row for date ${todayStr}`, availableDataRows: data.length });
+			return NextResponse.json({ status: `No row for date ${todayStr}` });
 		}
 
 		const currentScheduleRaw = todayRow[QUEUE_INDEX] || "";
