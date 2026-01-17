@@ -25,15 +25,15 @@ function getRedis() {
 
 // --- ФУНКЦІЯ ОТРИМАННЯ ДАНИХ ---
 async function getScheduleData(redis) {
-	// 1. Спробуємо взяти з кешу Redis
+	// 1. Кеш
 	const cached = await redis.get("schedule_full_cache");
 	if (cached) return JSON.parse(cached).data;
 
-	// 2. Якщо пусто — парсимо сайт прямо тут
+	// 2. Парсинг (якщо кешу нема)
 	try {
 		const resp = await fetch("https://www.roe.vsei.ua/disconnections", {
 			headers: { "User-Agent": "Mozilla/5.0 (Googlebot)" },
-			next: { revalidate: 0 } // no-cache
+			next: { revalidate: 0 }
 		});
 		if (!resp.ok) return null;
 
@@ -46,12 +46,10 @@ async function getScheduleData(redis) {
 		const data = rows.map((row) =>
 			row.querySelectorAll("td, th").map((col) => {
 				const ps = col.querySelectorAll("p");
-				// Якщо є теги <p>, склеюємо їх через пробіл
 				return ps.length > 0 ? ps.map(p => p.text.trim()).join(" ") : col.text.trim();
 			})
 		).filter(r => r.length > 0);
 
-		// Оновлюємо кеш
 		await redis.set("schedule_full_cache", JSON.stringify({ data }), "EX", 3600);
 		return data;
 	} catch (e) {
@@ -68,17 +66,25 @@ export async function GET() {
 		const data = await getScheduleData(redis);
 		if (!data || data.length === 0) return NextResponse.json({ status: "No data or scrape failed" });
 
-		// Часові налаштування
-		const nowUTC = new Date();
-		const KYIV_OFFSET = 2 * 60 * 60 * 1000;
-		const nowKyiv = new Date(nowUTC.getTime() + KYIV_OFFSET);
-		const todayStr = nowKyiv.toLocaleDateString("uk-UA").replace(/\./g, ".");
+		// 🔥 ВИПРАВЛЕННЯ ЧАСУ І ДАТИ (Universal Fix) 🔥
+		// 1. Отримуємо точний час у Києві, незалежно від пори року
+		const nowKyivStr = new Date().toLocaleString("en-US", { timeZone: "Europe/Kiev" });
+		const nowKyiv = new Date(nowKyivStr);
 
-		// Знаходимо рядок на сьогодні
-		const todayRow = data.find((r) => r[0] === todayStr);
+		// 2. Ручна збірка дати DD.MM.YYYY (щоб на Vercel точно збіглося з сайтом)
+		const d = String(nowKyiv.getDate()).padStart(2, '0');
+		const m = String(nowKyiv.getMonth() + 1).padStart(2, '0');
+		const y = nowKyiv.getFullYear();
+		const todayStr = `${d}.${m}.${y}`;
+
+		// Знаходимо рядок
+		const todayRow = data.find((r) => r[0].trim() === todayStr);
 		const QUEUE_INDEX = 9; // Черга 5.1
 
-		if (!todayRow) return NextResponse.json({ status: "No row for today" });
+		if (!todayRow) {
+			console.log(`Cron: No row found for date ${todayStr}`);
+			return NextResponse.json({ status: "No row for today", date: todayStr });
+		}
 
 		const currentScheduleRaw = todayRow[QUEUE_INDEX] || "";
 		const intervals = currentScheduleRaw.match(/\d{2}:\d{2}\s*-\s*\d{2}:\d{2}/g) || [];
@@ -105,11 +111,12 @@ export async function GET() {
 			await redis.set("last_schedule_state", currentScheduleRaw);
 		}
 
-		// 2. ПЕРЕВІРКА ЧАСУ
+		// 2. ПЕРЕВІРКА ЧАСУ (Тільки якщо не шлемо про зміну графіку)
 		if (!notificationTitle) {
 			for (const interval of intervals) {
 				const [startStr, endStr] = interval.split("-").map(s => s.trim());
 
+				// Парсимо години
 				const start = new Date(nowKyiv);
 				const [sh, sm] = startStr.split(":").map(Number);
 				start.setHours(sh, sm, 0, 0);
@@ -118,10 +125,12 @@ export async function GET() {
 				const [eh, em] = endStr.split(":").map(Number);
 				end.setHours(eh, em, 0, 0);
 
+				// Рахуємо різницю в хвилинах
 				const diffStart = (start.getTime() - nowKyiv.getTime()) / 60000;
 				const diffEnd = (end.getTime() - nowKyiv.getTime()) / 60000;
 
 				// "СКОРО ВИМКНЕННЯ" (0...35 хв до події)
+				// Використовуємо ключ з датою і часом, щоб не дублювати
 				if (diffStart >= 0 && diffStart <= 35) {
 					const key = `sent:off:${todayStr}:${startStr}`;
 					const isSent = await redis.get(key);
@@ -155,26 +164,32 @@ export async function GET() {
 		}
 
 		const subsRaw = await redis.smembers("subs");
-		console.log(`Sending push to ${subsRaw.length} subs: ${notificationTitle}`);
 
-		const results = await Promise.allSettled(
-			subsRaw.map(s => {
-				const sub = JSON.parse(s);
-				return webpush.sendNotification(sub, JSON.stringify({
-					title: notificationTitle,
-					body: notificationBody,
-					icon: "/icon-192x192.png"
-				}));
-			})
-		);
+		if (subsRaw.length > 0) {
+			const results = await Promise.allSettled(
+				subsRaw.map(s => {
+					const sub = JSON.parse(s);
+					return webpush.sendNotification(sub, JSON.stringify({
+						title: notificationTitle,
+						body: notificationBody,
+						icon: "/icon-192x192.png"
+					})).catch(err => {
+						if (err.statusCode === 410) {
+							// Якщо підписка мертва - видаляємо її
+							redis.srem("subs", s);
+						}
+					});
+				})
+			);
+			console.log(`Sent push: "${notificationTitle}" to ${subsRaw.length} devices.`);
+		}
 
-		// Записуємо, що відправили (живе 12 годин)
+		// Запам'ятовуємо, що відправили (на 12 годин)
 		await redis.set(eventId, "true", "EX", 43200);
 
 		return NextResponse.json({
 			status: "Sent",
-			title: notificationTitle,
-			successCount: results.filter(r => r.status === 'fulfilled').length
+			title: notificationTitle
 		});
 
 	} catch (err) {
