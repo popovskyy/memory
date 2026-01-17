@@ -37,7 +37,7 @@ export async function GET() {
 					const parsed = JSON.parse(cached);
 					// Якщо даним менше 5 хвилин - віддаємо їх і не мучимо сайт
 					const age = (Date.now() - (parsed.timestamp || 0)) / 1000;
-					if (age < 300) {
+					if (age < 15) {
 						console.log(`✅ Cache hit (${Math.round(age)}s old)`);
 						return responseJson(parsed);
 					}
