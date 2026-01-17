@@ -79,6 +79,13 @@ export default function HomePage() {
 								🕵️‍♀️ Вгадай Тінь
 							</div>
 						</Link>
+
+						<Link href="/tictactoe" className="group relative block w-full">
+							<div className="absolute -inset-0.5 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl blur opacity-30 group-hover:opacity-75 transition duration-200"></div>
+							<div className="relative block w-full text-center px-6 py-4 bg-slate-800/80 border border-white/5 rounded-xl font-bold text-lg transition-all duration-200 hover:scale-[1.02] hover:bg-cyan-900/50 hover:border-cyan-500/50 active:scale-95">
+								⭕ Хрестики-Нолики (Online)
+							</div>
+						</Link>
 					</div>
 
 					{/* <WaterOrderButton /> */}
