@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { parse } from "node-html-parser"; // 👈 Обов'язково поверни парсер
+import { parse } from "node-html-parser";
 import Redis from "ioredis";
 
 // Глобальне підключення
@@ -25,7 +25,7 @@ export async function GET() {
 	let resultData = null;
 
 	try {
-		// --- ЕТАП 1: Пробуємо взяти з Redis (ШВИДКО) ---
+		// --- ЕТАП 1: Redis (ШВИДКО) ---
 		if (redis) {
 			try {
 				if (redis.status !== "ready" && redis.status !== "connecting") {
@@ -40,13 +40,12 @@ export async function GET() {
 			}
 		}
 
-		// --- ЕТАП 2: Якщо в Redis пусто — ПАРСИМО САЙТ (ПЛАН Б) ---
-		// Це спрацює, якщо Крон ще не запускався або кеш протух
+		// --- ЕТАП 2: Парсинг (ПЛАН Б) ---
 		if (!resultData || !resultData.data || resultData.data.length === 0) {
 			console.log("⚠️ Cache MISS. Fetching live data...");
 
 			const controller = new AbortController();
-			const timeoutId = setTimeout(() => controller.abort(), 8000); // 8 сек макс
+			const timeoutId = setTimeout(() => controller.abort(), 8000);
 
 			const resp = await fetch("https://www.roe.vsei.ua/disconnections", {
 				cache: "no-store",
@@ -61,30 +60,34 @@ export async function GET() {
 
 			const html = await resp.text();
 			const root = parse(html);
-			const table = root.querySelector("table"); // Шукаємо першу таблицю
+			const table = root.querySelector("table");
 
 			if (!table) throw new Error("No table found");
 
 			const rows = table.querySelectorAll("tr");
 			const data = rows.map((row) =>
-				row.querySelectorAll("td, th").map((col) => col.text.trim())
-			);
+				row.querySelectorAll("td, th").map((col) => {
+					// 🔥 ФІКС для нового сайту: шукаємо <p> всередині комірок
+					const ps = col.querySelectorAll("p");
+					// Якщо є <p>, склеюємо через пробіл, інакше беремо просто текст
+					return ps.length > 0 ? ps.map(p => p.text.trim()).join(" ") : col.text.trim();
+				})
+			).filter(r => r.length > 0); // Прибираємо пусті рядки
 
 			resultData = { data };
 
-			// 🔥 ЗБЕРІГАЄМО В REDIS (Щоб наступний юзер отримав миттєво) 🔥
+			// 🔥 ЗБЕРІГАЄМО В REDIS на 3 хвилини (180 секунд) 🔥
 			if (redis) {
-				// Зберігаємо на 1 годину (3600 сек)
-				await redis.set("schedule_full_cache", JSON.stringify(resultData), "EX", 3600);
-				console.log("💾 Saved live data to Redis");
+				await redis.set("schedule_full_cache", JSON.stringify(resultData), "EX", 180);
+				console.log("💾 Saved live data to Redis (3 min TTL)");
 			}
 		}
 
-		// --- ЕТАП 3: Віддаємо відповідь ---
+		// --- ЕТАП 3: Відповідь ---
 		const response = NextResponse.json(resultData);
 
-		// Браузер/CDN кешує на 5 хв, щоб не довбати сервер занадто часто
-		response.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=60');
+		// Браузер/CDN теж кешує лише на 3 хв (180 сек)
+		response.headers.set('Cache-Control', 'public, s-maxage=180, stale-while-revalidate=60');
 
 		return response;
 
