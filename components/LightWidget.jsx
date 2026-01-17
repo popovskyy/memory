@@ -41,8 +41,9 @@ export default function LightWidget({ onToggle }) {
 		error: false
 	});
 
-	const QUEUE_INDEX = 9; // Черга 5.1
+	const QUEUE_INDEX = 9;
 
+	// Safari-friendly дата
 	const getTodayString = () => {
 		const d = new Date();
 		const day = String(d.getDate()).padStart(2, '0');
@@ -74,14 +75,17 @@ export default function LightWidget({ onToggle }) {
 			let offNow = false;
 			let nextChangeText = intervals.length > 0 ? "Світло є" : "Відключень немає";
 			const nowD = new Date();
+
 			for (let interval of intervals) {
 				const [startStr, endStr] = interval.split("-").map((s) => s.trim());
-				const start = new Date(nowD);
 				const [sh, sm] = startStr.split(":").map(Number);
+				const [eh, em] = endStr.split(":").map(Number);
+
+				const start = new Date(nowD);
 				start.setHours(sh, sm, 0, 0);
 				const end = new Date(nowD);
-				const [eh, em] = endStr.split(":").map(Number);
 				end.setHours(eh, em, 0, 0);
+
 				if (nowD >= start && nowD <= end) {
 					offNow = true;
 					nextChangeText = `Увімкнуть через ${formatDiff(end - nowD)}`;
@@ -93,17 +97,13 @@ export default function LightWidget({ onToggle }) {
 			}
 			setStatus({ isOff: offNow, text: nextChangeText, intervals, error: false });
 		} else {
-			setStatus({ isOff: false, text: "Дані застаріли", intervals: [], error: false });
+			setStatus({ isOff: false, text: "Дані уточнюються", intervals: [], error: false });
 		}
 	};
 
 	useEffect(() => {
 		setMounted(true);
-		if (loading) {
-			setStatus(prev => ({ ...prev, text: "Завантаження..." }));
-			return;
-		}
-		if (rows.length > 0) recalcStatus(rows);
+		if (!loading && rows.length > 0) recalcStatus(rows);
 		const timer = setInterval(() => { if (rows.length > 0) recalcStatus(rows); }, 60000);
 		return () => clearInterval(timer);
 	}, [rows, loading]);
@@ -147,7 +147,7 @@ export default function LightWidget({ onToggle }) {
 				<div className="relative flex items-center justify-center gap-3 w-full px-8 py-5 bg-gradient-to-br from-yellow-500 via-orange-500 to-yellow-600 rounded-xl text-white font-black text-2xl tracking-wider shadow-lg transform transition-all duration-200 active:scale-95 border border-yellow-400/30 overflow-hidden">
 					<div className="absolute top-0 -left-[100%] w-full h-full bg-gradient-to-r from-transparent via-white/30 to-transparent -skew-x-12 group-hover:left-[100%] transition-all duration-700" />
 					<IconZap className="w-8 h-8 text-yellow-100 drop-shadow-md" />
-					<span className="drop-shadow-md uppercase">Світло</span>
+					<span className="drop-shadow-md uppercase text-xl">Світло</span>
 				</div>
 			</div>
 
@@ -165,10 +165,8 @@ export default function LightWidget({ onToggle }) {
 							</div>
 						</div>
 
-						{/* ГЛАВНАЯ КАРТОЧКА С ТЕСЛА-АНИМАЦИЕЙ */}
 						<div className={`relative rounded-3xl p-6 border transition-all duration-500 overflow-hidden mb-6 ${status.isOff ? "bg-gradient-to-br from-red-950 to-slate-900 border-red-900/50" : "bg-gradient-to-br from-cyan-950 to-slate-900 border-cyan-900/50"}`}>
-
-							{!loading && !status.error && (
+							{!loading && (
 								<>
 									<div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-40 h-40 rounded-full blur-[50px] opacity-40 animate-pulse" style={{ backgroundColor: glowColor }}></div>
 									<PlasmaBolt className={`top-2 -left-4 w-10 h-20 ${boltColor} animate-flash-1`} />
@@ -180,14 +178,14 @@ export default function LightWidget({ onToggle }) {
 
 							<div className="relative flex flex-col items-center text-center gap-3 z-10">
 								<div className={`relative p-4 rounded-full shadow-2xl transition-all duration-500 border border-white/10 ${status.isOff ? "bg-red-500/20 shadow-red-500/40" : "bg-cyan-500/20 shadow-cyan-500/40"}`}>
-									{!loading && !status.error && (
+									{!loading && (
 										<div className="absolute inset-0 rounded-full border-2 border-white/20 animate-ping opacity-30"></div>
 									)}
 									<IconZap className={`w-12 h-12 ${status.isOff ? "text-red-400" : "text-cyan-300"} ${!loading && "animate-jitter"}`} />
 								</div>
 								<div>
 									<h2 className={`text-3xl font-black tracking-tight mb-2 drop-shadow-xl ${status.isOff ? "text-red-100" : "text-cyan-100"}`}>
-										{loading ? "Завантаження..." : status.error ? "Помилка" : status.isOff ? "Світла НЕМАЄ" : "Світло Є"}
+										{loading ? "Завантаження..." : status.isOff ? "Світла НЕМАЄ" : "Світло Є"}
 									</h2>
 									<div className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-950/60 border border-white/10 backdrop-blur-md shadow-lg">
 										<IconClock className="w-4 h-4 text-slate-400" />
@@ -197,7 +195,6 @@ export default function LightWidget({ onToggle }) {
 							</div>
 						</div>
 
-						{/* СЕГОДНЯШНИЙ ГРАФИК */}
 						<div className="space-y-3">
 							<div className="flex items-center gap-2 px-2 opacity-70">
 								<div className="w-2 h-2 rounded-full bg-yellow-400 animate-pulse" />
@@ -214,13 +211,12 @@ export default function LightWidget({ onToggle }) {
 								))
 							) : (
 								<div className="p-6 text-center border border-dashed border-slate-800 rounded-2xl text-slate-500 text-sm">
-									{loading ? "Оновлюємо дані..." : "На сьогодні немає відключень"}
+									{loading ? "Оновлюємо дані..." : "Відключень не заплановано"}
 								</div>
 							)}
 						</div>
 
-						{/* НОВЫЙ ДИЗАЙН СЕКЦИИ "НАСТУПНІ ДНІ" */}
-						{rows.length > 0 && (
+						{rows.length > 1 && (
 							<div className="mt-10 pt-6 border-t border-slate-800/80">
 								<div className="flex items-center justify-between px-2 mb-5">
 									<h3 className="text-xs font-black uppercase tracking-[0.2em] text-slate-500">Прогноз на тиждень</h3>
@@ -230,42 +226,29 @@ export default function LightWidget({ onToggle }) {
 									{(() => {
 										const todayStr = getTodayString();
 										const todayIndex = rows.findIndex((r) => r[0].trim() === todayStr);
-										const futureRows = todayIndex !== -1 ? rows.slice(todayIndex + 1) : rows;
-										if (futureRows.length === 0) return <div className="text-xs text-center text-slate-600 py-4 italic">Більше прогнозів поки немає</div>;
+										const futureRows = todayIndex !== -1 ? rows.slice(todayIndex + 1) : rows.slice(1);
+
 										return futureRows.map((row, i) => {
 											const raw = row[QUEUE_INDEX];
 											const intervals = parseIntervals(raw);
 											const isWaiting = raw && raw.toLowerCase().includes("очікується");
-											const parts = row[0].split('.');
-											const d = parts[0];
-											const m = parts[1];
+											const [d, m] = row[0].split('.');
 											return (
-												<div key={i} className="group relative overflow-hidden flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-slate-900/40 to-slate-900/20 border border-slate-800/50 hover:border-slate-700/80 transition-all duration-300">
-													<div className="flex flex-col items-center justify-center min-w-[56px] h-[56px] bg-slate-800/80 rounded-xl border border-white/5 shadow-inner group-hover:bg-slate-700 transition-colors">
-														<span className="text-xl font-black text-white leading-none">{d}</span>
-														<span className="text-[10px] font-bold text-indigo-400 uppercase mt-1 tracking-tighter">{m}</span>
+												<div key={i} className="group relative overflow-hidden flex items-center gap-4 p-4 rounded-2xl bg-gradient-to-r from-slate-900/40 to-slate-900/20 border border-slate-800/50">
+													<div className="flex flex-col items-center justify-center min-w-[56px] h-[56px] bg-slate-800/80 rounded-xl border border-white/5">
+														<span className="text-xl font-black text-white">{d}</span>
+														<span className="text-[10px] font-bold text-indigo-400 uppercase mt-1">{m}</span>
 													</div>
 													<div className="flex-1">
 														<div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-1">ГПВ</div>
 														{isWaiting ? (
-															<div className="flex items-center gap-1.5">
-																<div className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" />
-																<span className="text-sm font-bold text-yellow-600/90 italic">Очікується...</span>
-															</div>
+															<div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse" /><span className="text-sm font-bold text-yellow-600/90 italic">Очікується...</span></div>
 														) : intervals.length > 0 ? (
-															<div className="flex flex-wrap gap-1.5">
-																{intervals.map((interval, idx) => (
-																	<span key={idx} className="px-2 py-1 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-mono font-bold">{interval}</span>
-																))}
-															</div>
+															<div className="flex flex-wrap gap-1.5">{intervals.map((idx, interval) => <span key={idx} className="px-2 py-1 rounded-md bg-indigo-500/10 border border-indigo-500/20 text-indigo-300 text-xs font-mono font-bold">{interval}</span>)}</div>
 														) : (
-															<div className="text-sm font-bold text-emerald-500/80 flex items-center gap-1.5">
-																<svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M5 13l4 4L19 7" /></svg>
-																Без обмежень
-															</div>
+															<div className="text-sm font-bold text-emerald-500/80 flex items-center gap-1.5">Без обмежень</div>
 														)}
 													</div>
-													<div className="absolute right-0 top-0 bottom-0 w-1 bg-gradient-to-b from-transparent via-slate-700/20 to-transparent" />
 												</div>
 											)
 										})

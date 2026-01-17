@@ -6,10 +6,9 @@ import { parse } from "node-html-parser";
 
 export async function GET() {
 	try {
-		console.log("🚀 Запит напряму до Обленерго...");
+		console.log("🚀 Live Fetch: Direct to Oblenergo...");
 
 		const controller = new AbortController();
-		// Даємо сайту 9 секунд на відповідь (ліміт Vercel)
 		const timeoutId = setTimeout(() => controller.abort(), 9000);
 
 		const resp = await fetch("https://www.roe.vsei.ua/disconnections", {
@@ -17,18 +16,20 @@ export async function GET() {
 			headers: {
 				"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 				"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+				"Cache-Control": "no-cache",
+				"Pragma": "no-cache"
 			},
 			signal: controller.signal
 		});
 		clearTimeout(timeoutId);
 
-		if (!resp.ok) throw new Error(`Помилка сайту: ${resp.status}`);
+		if (!resp.ok) throw new Error(`HTTP Error: ${resp.status}`);
 
 		const html = await resp.text();
 		const root = parse(html);
 		const table = root.querySelector("table");
 
-		if (!table) throw new Error("Таблицю не знайдено");
+		if (!table) throw new Error("Table not found");
 
 		const rows = table.querySelectorAll("tr");
 		const data = rows.map((row) =>
@@ -38,17 +39,27 @@ export async function GET() {
 			})
 		).filter(r => r.length > 0);
 
+		// Додаємо жорсткі хедери проти кешування для iPhone
 		return NextResponse.json({
 			data,
 			timestamp: Date.now(),
 			status: "live"
+		}, {
+			headers: {
+				'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+				'Pragma': 'no-cache',
+				'Expires': '0',
+			}
 		});
 
 	} catch (err) {
-		console.error("❌ Помилка завантаження:", err.message);
+		console.error("❌ API Error:", err.message);
 		return NextResponse.json({
-			error: "Сайт Обленерго не відповів вчасно або заблокував запит",
+			error: "Source Timeout",
 			details: err.message
-		}, { status: 504 });
+		}, {
+			status: 504,
+			headers: { 'Cache-Control': 'no-store' }
+		});
 	}
 }
