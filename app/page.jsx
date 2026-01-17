@@ -3,54 +3,81 @@
 import { useState } from "react";
 import Link from "next/link";
 import PushManager from "../components/PushManager";
-import WaterOrderButton from "../components/WaterOrderButton";
-import LightWidget from "../components/LightWidget"; // Імпорт нашого нового віджета
+// import WaterOrderButton from "../components/WaterOrderButton"; // Якщо треба, розкоментуй
+import LightWidget from "../components/LightWidget";
 
 export default function HomePage() {
-	// Цей стейт контролює видимість меню.
-	// Він змінюється зсередини LightWidget через пропс onToggle
 	const [isMenuHidden, setIsMenuHidden] = useState(false);
 
 	return (
-		<main className="min-h-screen bg-slate-950 text-white relative overflow-hidden font-sans select-none">
+		// Додаємо глибокий темний градієнт на фон самої сторінки
+		<main className="min-h-screen bg-gradient-to-br from-slate-950 via-[#0f172a] to-[#1e1b4b] text-white relative overflow-hidden font-sans select-none">
 
-			{/* Контейнер меню.
-         Якщо isMenuHidden === true, ми додаємо прозорість, блюр і забороняємо кліки,
-         але НЕ прибираємо з DOM, щоб не було стрибків.
-      */}
+			{/* === ЖИВИЙ ФОН (Aurora Effect) === */}
+			<div className="absolute inset-0 overflow-hidden pointer-events-none">
+				{/* Фіолетова сфера */}
+				<div className="absolute top-0 -left-4 w-[500px] h-[500px] bg-purple-600/40 rounded-full mix-blend-multiply filter blur-[120px] opacity-70 animate-blob"></div>
+				{/* Синя сфера (із затримкою) */}
+				<div className="absolute top-0 -right-4 w-[600px] h-[600px] bg-indigo-600/40 rounded-full mix-blend-multiply filter blur-[120px] opacity-70 animate-blob animation-delay-2000"></div>
+				{/* Рожева сфера внизу (із довгою затримкою) */}
+				<div className="absolute -bottom-32 left-[20%] w-[600px] h-[600px] bg-pink-600/40 rounded-full mix-blend-multiply filter blur-[120px] opacity-60 animate-blob animation-delay-4000"></div>
+			</div>
+
+
+			{/* Контейнер меню */}
 			<div
 				className={`
-          flex items-center justify-center min-h-screen p-6 transition-all duration-500 ease-in-out
-          ${isMenuHidden ? "opacity-0 blur-md pointer-events-none scale-95" : "opacity-100 blur-0 scale-100"}
+          flex items-center justify-center min-h-screen p-6 transition-all duration-700 ease-[cubic-bezier(0.25,0.1,0.25,1.0)]
+          ${isMenuHidden ? "opacity-0 blur-lg pointer-events-none scale-90 translate-y-10" : "opacity-100 blur-0 scale-100 translate-y-0"}
         `}
 			>
-				{/* Фонові ефекти */}
-				<div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-indigo-900/20 rounded-full blur-[120px] pointer-events-none" />
+				{/* Головна картка з покращеним ефектом скла */}
+				<div className="max-w-md w-full bg-slate-900/50 backdrop-blur-2xl border border-white/10 p-6 rounded-3xl space-y-6 shadow-[0_25px_60px_-15px_rgba(0,0,0,0.5)] relative z-10 transition-all hover:shadow-[0_30px_70px_-15px_rgba(50,50,93,0.3)] hover:border-white/20">
 
-				<div className="max-w-md w-full bg-slate-900/80 backdrop-blur-md border border-slate-800 p-5 rounded-2xl space-y-6 shadow-2xl relative z-10">
+					{/* Заголовок з градієнтом */}
+					<h1 className="text-center text-3xl font-black tracking-tight bg-gradient-to-r from-white via-blue-100 to-indigo-200 bg-clip-text text-transparent drop-shadow-sm pb-2">
+						Головне Меню
+					</h1>
 
-					{/* ⚡ ВІДЖЕТ СВІТЛА
-            Ми передаємо функцію setIsMenuHidden, щоб віджет міг "вимкнути" меню, коли відкривається шторка
-          */}
+					{/* ВІДЖЕТ СВІТЛА (Він вже сам по собі гарний) */}
 					<LightWidget onToggle={(isOpen) => setIsMenuHidden(isOpen)} />
 
-					<Link href="/memory" className="block w-full text-center px-6 py-4 bg-slate-800 border border-slate-700 rounded-xl font-bold text-lg hover:bg-blue-600 hover:border-blue-500 transition-all">
-						🧠 Memory Game
-					</Link>
+					{/* Розділювач */}
+					<div className="w-full h-px bg-gradient-to-r from-transparent via-white/20 to-transparent my-4"></div>
 
-					<Link href="/puzzle" className="block w-full text-center px-6 py-4 bg-slate-800 border border-slate-700 rounded-xl font-bold text-lg hover:bg-emerald-600 hover:border-emerald-500 transition-all">
-						🧩 Puzzle Game
-					</Link>
-
-					<div className="relative w-full">
-						<Link href="/numbers" className="block w-full text-center px-6 py-4 bg-slate-800 border border-slate-700 rounded-xl font-bold text-lg hover:bg-purple-600 hover:border-purple-500 transition-all">
-							🎨 Малювання Цифр
+					{/* Кнопки ігор (додано ефекти при наведенні) */}
+					<div className="space-y-4">
+						<Link href="/memory" className="group relative block w-full">
+							<div className="absolute -inset-0.5 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl blur opacity-30 group-hover:opacity-75 transition duration-200"></div>
+							<div className="relative block w-full text-center px-6 py-4 bg-slate-800/80 border border-white/5 rounded-xl font-bold text-lg transition-all duration-200 hover:scale-[1.02] hover:bg-blue-900/50 hover:border-blue-500/50 active:scale-95">
+								🧠 Memory Game
+							</div>
 						</Link>
-						<span className="absolute -top-2 -right-2 bg-gradient-to-r from-red-500 to-pink-600 text-white text-[10px] font-black px-2 py-1 rounded-full border-2 border-slate-900 shadow-lg animate-bounce">NEW</span>
+
+						<Link href="/puzzle" className="group relative block w-full">
+							<div className="absolute -inset-0.5 bg-gradient-to-r from-emerald-500 to-teal-600 rounded-xl blur opacity-30 group-hover:opacity-75 transition duration-200"></div>
+							<div className="relative block w-full text-center px-6 py-4 bg-slate-800/80 border border-white/5 rounded-xl font-bold text-lg transition-all duration-200 hover:scale-[1.02] hover:bg-emerald-900/50 hover:border-emerald-500/50 active:scale-95">
+								🧩 Puzzle Game
+							</div>
+						</Link>
+
+						<div className="relative w-full group">
+							<Link href="/numbers" className="group relative block w-full">
+								<div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500 to-pink-600 rounded-xl blur opacity-30 group-hover:opacity-75 transition duration-200"></div>
+								<div className="relative block w-full text-center px-6 py-4 bg-slate-800/80 border border-white/5 rounded-xl font-bold text-lg transition-all duration-200 hover:scale-[1.02] hover:bg-purple-900/50 hover:border-purple-500/50 active:scale-95">
+									🎨 Малювання Цифр
+								</div>
+							</Link>
+							{/* Бейдж NEW теж анімуємо */}
+							<span className="absolute -top-2 -right-2 bg-gradient-to-r from-red-500 to-pink-600 text-white text-[10px] font-black px-3 py-1 rounded-full border-2 border-slate-900 shadow-lg animate-pulse z-20">NEW</span>
+						</div>
 					</div>
 
-					<WaterOrderButton />
-					<PushManager />
+					{/* <WaterOrderButton /> */}
+
+					<div className="pt-2 opacity-80 hover:opacity-100 transition-opacity">
+						<PushManager />
+					</div>
 				</div>
 			</div>
 		</main>

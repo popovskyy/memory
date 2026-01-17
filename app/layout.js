@@ -9,32 +9,32 @@ export const metadata = {
 
 // 👇 Список картинок для передзавантаження
 const puzzleImages = [
-	"/images/puzzles/puzzle-01.jpg",
-	"/images/puzzles/puzzle-02.jpg",
-	"/images/puzzles/puzzle-03.jpg",
-	"/images/puzzles/puzzle-04.jpg",
-	"/images/puzzles/puzzle-05.jpg",
-	"/images/puzzles/puzzle-06.jpg",
-	"/images/puzzles/puzzle-07.jpg",
-	"/images/puzzles/puzzle-08.jpg",
-	"/images/puzzles/puzzle-09.jpg",
-	"/images/puzzles/puzzle-10.jpg",
-	"/images/puzzles/puzzle-11.jpg",
-	"/images/puzzles/puzzle-12.jpg",
-	"/images/puzzles/puzzle-13.jpg",
+	// "/images/puzzles/puzzle-01.jpg",
+	// "/images/puzzles/puzzle-02.jpg",
+	// "/images/puzzles/puzzle-03.jpg",
+	// "/images/puzzles/puzzle-04.jpg",
+	// "/images/puzzles/puzzle-05.jpg",
+	// "/images/puzzles/puzzle-06.jpg",
+	// "/images/puzzles/puzzle-07.jpg",
+	// "/images/puzzles/puzzle-08.jpg",
+	// "/images/puzzles/puzzle-09.jpg",
+	// "/images/puzzles/puzzle-10.jpg",
+	// "/images/puzzles/puzzle-11.jpg",
+	// "/images/puzzles/puzzle-12.jpg",
+	// "/images/puzzles/puzzle-13.jpg",
 ];
 
 
 const pawsImages = [
-	"/images/paws/builder.jpg",
-	"/images/paws/chase.jpg",
-	"/images/paws/everest.jpg",
-	"/images/paws/marshal.jpg",
-	"/images/paws/rocky.jpg",
-	"/images/paws/sky.jpg",
-	"/images/paws/taksa.jpg",
-	"/images/paws/zooma.jpg",
-	"/images/paws/elsa.jpg",
+	// "/images/paws/builder.jpg",
+	// "/images/paws/chase.jpg",
+	// "/images/paws/everest.jpg",
+	// "/images/paws/marshal.jpg",
+	// "/images/paws/rocky.jpg",
+	// "/images/paws/sky.jpg",
+	// "/images/paws/taksa.jpg",
+	// "/images/paws/zooma.jpg",
+	// "/images/paws/elsa.jpg",
 ];
 
 export default function RootLayout({ children }) {
