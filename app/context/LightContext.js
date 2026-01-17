@@ -9,22 +9,15 @@ export function LightProvider({ children }) {
 	const [loading, setLoading] = useState(true);
 
 	const fetchData = async () => {
+		setLoading(true);
 		try {
-			//nocache ламає кеш Safari на iPhone
-			const res = await fetch(`/api/disconnections?nocache=${Date.now()}`, {
-				cache: 'no-store',
-				headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+			const res = await fetch(`/api/disconnections?t=${Date.now()}`, {
+				cache: 'no-store'
 			});
-
 			const json = await res.json();
-			if (json.data) {
-				setRows(json.data);
-				localStorage.setItem("light-data", JSON.stringify(json.data));
-			}
+			if (json.data) setRows(json.data);
 		} catch (err) {
 			console.error("Fetch error:", err);
-			const local = localStorage.getItem("light-data");
-			if (local) setRows(JSON.parse(local));
 		} finally {
 			setLoading(false);
 		}
@@ -32,12 +25,10 @@ export function LightProvider({ children }) {
 
 	useEffect(() => {
 		fetchData();
-		const interval = setInterval(fetchData, 300000); // 5 хв
-		return () => clearInterval(interval);
-	}, []);
+	}, []); // Тільки один раз при вході
 
 	return (
-		<LightContext.Provider value={{ rows, loading, refresh: fetchData }}>
+		<LightContext.Provider value={{ rows, loading }}>
 			{children}
 		</LightContext.Provider>
 	);
