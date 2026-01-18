@@ -4,29 +4,36 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { parse } from "node-html-parser";
 
+async function fetchWithRetry(url, options, retries = 2) {
+	for (let i = 0; i < retries; i++) {
+		try {
+			const controller = new AbortController();
+			// Ставимо коротший таймаут на кожну спробу (4 секунди)
+			const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+			const response = await fetch(url, { ...options, signal: controller.signal });
+			clearTimeout(timeoutId);
+
+			if (response.ok) return response;
+		} catch (err) {
+			console.log(`⚠️ Спроба ${i + 1} провалена, пробуємо ще раз...`);
+			if (i === retries - 1) throw err;
+		}
+	}
+}
+
 export async function GET() {
-	const controller = new AbortController();
-	// Vercel Hobby вбиває все через 10с, ставимо запас
-	const timeoutId = setTimeout(() => controller.abort(), 9000);
-
 	try {
-		console.log("📡 Прямий запит без зайвих параметрів...");
-
-		// Тільки чистий URL, без t=Date.now()
 		const resp = await fetch("https://www.roe.vsei.ua/disconnections", {
 			cache: "no-store",
 			headers: {
-				"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-				"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-				"Accept-Language": "uk-UA,uk;q=0.9,en-US;q=0.8,en;q=0.7",
-				"Connection": "keep-alive"
-			},
-			signal: controller.signal
+				// Імітуємо реальний браузер ще детальніше
+				"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+				"Accept-Encoding": "gzip, deflate, br",
+				"Connection": "keep-alive",
+				"Host": "www.roe.vsei.ua"
+			}
 		});
-
-		clearTimeout(timeoutId);
-
-		if (!resp.ok) throw new Error(`HTTP Error: ${resp.status}`);
 
 		const html = await resp.text();
 		const root = parse(html);
@@ -35,8 +42,6 @@ export async function GET() {
 		if (!table) throw new Error("Таблицю не знайдено");
 
 		const rows = table.querySelectorAll("tr");
-
-		// Парсимо дані без зайвої фільтрації на цьому етапі
 		const allData = rows.map((row) =>
 			row.querySelectorAll("td, th").map((col) => {
 				const ps = col.querySelectorAll("p");
@@ -44,28 +49,14 @@ export async function GET() {
 			})
 		).filter(r => r.length > 0 && r[0] !== "");
 
-		// Знаходимо початок фактичних даних
 		const firstDateIdx = allData.findIndex(r => r[0] && r[0].match(/^\d{2}\.\d{2}\.\d{4}$/));
 		const finalRows = firstDateIdx !== -1 ? allData.slice(firstDateIdx) : allData;
 
-		return NextResponse.json({
-			data: finalRows,
-			timestamp: Date.now()
-		}, {
-			headers: {
-				'Cache-Control': 'no-store, max-age=0',
-			}
+		return NextResponse.json({ data: finalRows, timestamp: Date.now() }, {
+			headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' }
 		});
 
 	} catch (err) {
-		console.error("❌ Помилка запиту:", err.message);
-
-		return NextResponse.json({
-			error: "Сайт Обленерго не відповів",
-			details: err.message
-		}, {
-			status: 504,
-			headers: { 'Cache-Control': 'no-store' }
-		});
+		return NextResponse.json({ error: "Обленерго не відповідає", details: err.message }, { status: 504 });
 	}
 }
