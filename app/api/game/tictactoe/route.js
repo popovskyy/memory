@@ -5,10 +5,52 @@ import { NextResponse } from "next/server";
 import Redis from "ioredis";
 
 let redisInstance = null;
+let redisAvailable = true;
+const memoryStore = new Map();
+
 function getRedis() {
-	if (!process.env.REDIS_URL) return null;
-	if (!redisInstance) redisInstance = new Redis(process.env.REDIS_URL);
+	if (!process.env.REDIS_URL || !redisAvailable) return null;
+	if (!redisInstance) {
+		redisInstance = new Redis(process.env.REDIS_URL, {
+			maxRetriesPerRequest: 1,
+			connectTimeout: 3000,
+			lazyConnect: true,
+		});
+		redisInstance.on("error", (err) => {
+			console.error("[tictactoe] Redis error, using memory:", err.message);
+			redisAvailable = false;
+		});
+	}
 	return redisInstance;
+}
+
+async function getGameState(roomId) {
+	const redis = getRedis();
+	if (redis) {
+		try {
+			if (redis.status !== "ready") await redis.connect();
+			const data = await redis.get(`tictactoe:${roomId}`);
+			return data ? JSON.parse(data) : null;
+		} catch {
+			redisAvailable = false;
+		}
+	}
+	return memoryStore.get(roomId) || null;
+}
+
+async function saveGameState(roomId, state, ttlSec = 3600) {
+	const redis = getRedis();
+	if (redis) {
+		try {
+			if (redis.status !== "ready") await redis.connect();
+			await redis.set(`tictactoe:${roomId}`, JSON.stringify(state), "EX", ttlSec);
+			return;
+		} catch {
+			redisAvailable = false;
+		}
+	}
+	memoryStore.set(roomId, state);
+	setTimeout(() => memoryStore.delete(roomId), ttlSec * 1000);
 }
 
 // Перевірка переможця
@@ -29,23 +71,19 @@ function checkWinner(board) {
 
 // GET: Отримати стан гри (опитування)
 export async function GET(req) {
-	const redis = getRedis();
-	if (!redis) return NextResponse.json({ error: "No Redis" }, { status: 500 });
-
 	const { searchParams } = new URL(req.url);
 	const roomId = searchParams.get("roomId");
 
 	if (!roomId) return NextResponse.json({ error: "No Room ID" }, { status: 400 });
 
-	const gameState = await redis.get(`tictactoe:${roomId}`);
+	const gameState = await getGameState(roomId);
 	if (!gameState) return NextResponse.json({ error: "Game not found" }, { status: 404 });
 
-	return NextResponse.json(JSON.parse(gameState));
+	return NextResponse.json(gameState);
 }
 
 // POST: Створити гру або зробити хід
 export async function POST(req) {
-	const redis = getRedis();
 	const body = await req.json();
 	const { action, roomId, playerId, index } = body;
 
@@ -54,27 +92,23 @@ export async function POST(req) {
 		const newRoomId = Math.random().toString(36).substring(2, 7).toUpperCase();
 		const initialState = {
 			board: Array(9).fill(null),
-			xPlayer: playerId, // Той, хто створив - грає за X
-			oPlayer: null,     // Той, хто приєднається - грає за O
+			xPlayer: playerId,
+			oPlayer: null,
 			turn: "X",
 			winner: null
 		};
-		// Гра живе 1 годину (3600 сек)
-		await redis.set(`tictactoe:${newRoomId}`, JSON.stringify(initialState), "EX", 3600);
+		await saveGameState(newRoomId, initialState);
 		return NextResponse.json({ roomId: newRoomId, ...initialState });
 	}
 
 	// 2. ПРИЄДНАННЯ ДО ГРИ
 	if (action === "join") {
-		const data = await redis.get(`tictactoe:${roomId}`);
-		if (!data) return NextResponse.json({ error: "Кімнату не знайдено" }, { status: 404 });
+		const state = await getGameState(roomId);
+		if (!state) return NextResponse.json({ error: "Кімнату не знайдено" }, { status: 404 });
 
-		const state = JSON.parse(data);
-
-		// Якщо це не автор гри, і місця O ще немає — записуємо гравця
 		if (state.xPlayer !== playerId && !state.oPlayer) {
 			state.oPlayer = playerId;
-			await redis.set(`tictactoe:${roomId}`, JSON.stringify(state), "EX", 3600);
+			await saveGameState(roomId, state);
 		}
 
 		return NextResponse.json(state);
@@ -82,12 +116,9 @@ export async function POST(req) {
 
 	// 3. ХІД
 	if (action === "move") {
-		const data = await redis.get(`tictactoe:${roomId}`);
-		if (!data) return NextResponse.json({ error: "Game error" }, { status: 404 });
+		const state = await getGameState(roomId);
+		if (!state) return NextResponse.json({ error: "Game error" }, { status: 404 });
 
-		const state = JSON.parse(data);
-
-		// Перевірки: чи гра закінчена? чи клітинка пуста? чи черга гравця?
 		if (state.winner || state.board[index]) return NextResponse.json(state);
 
 		const isX = state.xPlayer === playerId;
@@ -97,21 +128,18 @@ export async function POST(req) {
 			return NextResponse.json({ error: "Not your turn" }, { status: 400 });
 		}
 
-		// Робимо хід
 		state.board[index] = state.turn;
 
-		// Перевірка перемоги
 		const win = checkWinner(state.board);
 		if (win) {
 			state.winner = win;
 		} else if (!state.board.includes(null)) {
-			state.winner = "DRAW"; // Нічия
+			state.winner = "DRAW";
 		} else {
-			// Передача ходу
 			state.turn = state.turn === "X" ? "O" : "X";
 		}
 
-		await redis.set(`tictactoe:${roomId}`, JSON.stringify(state), "EX", 3600);
+		await saveGameState(roomId, state);
 		return NextResponse.json(state);
 	}
 

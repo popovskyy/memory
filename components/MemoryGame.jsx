@@ -78,7 +78,7 @@ export default function MemoryGame() {
 	const audioRef = useRef(null);
 	const matchAudioRef = useRef(null);
 	const canvasRef = useRef(null);
-	let fireworksInterval = useRef(null);
+	const fireworksInterval = useRef(null);
 
 	// ==========================================================================================
 	// INIT
@@ -181,11 +181,11 @@ export default function MemoryGame() {
 	// DETECT WINNER
 	// ==========================================================================================
 	useEffect(() => {
-		if (gameStarted && cards.length > 0 && matched.length === cards.length) {
+		if (gameStarted && cards.length > 0 && matched.length === cards.length && players.length > 0) {
 			const best = [...players].sort((a, b) => b.score - a.score)[0];
 			setWinner(best);
 		}
-	}, [matched]);
+	}, [matched, gameStarted, cards.length, players]);
 
 	// ==========================================================================================
 	// WINNER EFFECTS — FIREWORKS + LOOPING MUSIC

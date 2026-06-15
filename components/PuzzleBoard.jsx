@@ -29,7 +29,7 @@ export default function PuzzleBoard({ image, size, shuffled, setShuffled }) {
 
 	return (
 		<div
-			className="grid rounded overflow-hidden p-10"
+			className="grid rounded overflow-hidden p-2 md:p-4"
 			style={{
 				gridTemplateColumns: `repeat(${size}, 1fr)`,
 				width: "100%",

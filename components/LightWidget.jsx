@@ -71,6 +71,10 @@ export default function LightWidget({ onToggle }) {
 		return () => clearInterval(timer);
 	}, [rows, loading]);
 
+	useEffect(() => {
+		onToggle?.(isOpen);
+	}, [isOpen, onToggle]);
+
 	const glowColor = status.isOff ? "rgba(239, 68, 68, 0.8)" : "rgba(103, 232, 249, 0.8)";
 	const boltColor = status.isOff ? "text-red-500" : "text-cyan-300";
 

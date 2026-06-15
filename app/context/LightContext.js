@@ -28,7 +28,7 @@ export function LightProvider({ children }) {
 	}, []); // Тільки один раз при вході
 
 	return (
-		<LightContext.Provider value={{ rows, loading }}>
+		<LightContext.Provider value={{ rows, loading, refresh: fetchData }}>
 			{children}
 		</LightContext.Provider>
 	);

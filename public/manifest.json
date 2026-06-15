@@ -1,13 +1,13 @@
 {
-  "name": "Світло Щасливе (5.1)",
-  "short_name": "Світло",
-  "description": "Графік світла — Щасливе (5.1)",
+  "name": "Абетка Діани",
+  "short_name": "Абетка",
+  "description": "3D-гра для вивчення української абетки",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#000000",
-  "theme_color": "#fde047",
+  "background_color": "#2e1065",
+  "theme_color": "#5b21b6",
   "icons": [
     {
       "src": "/favicons/android-icon-192x192.png",
