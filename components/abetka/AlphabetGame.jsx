@@ -11,7 +11,8 @@ import {
 	buildSuccessMessage,
 	buildWrongMessage,
 } from "./alphabetData";
-import { speakUk, stopSpeech, isSpeechSupported } from "./speakUk";
+import { speakUk, stopSpeech, isSpeechSupported, preloadSpeech, ensureCached } from "./speakUk";
+import MobileGamepad, { useIsTouchDevice } from "./MobileGamepad";
 
 function celebrate() {
 	confetti({ particleCount: 150, spread: 90, origin: { y: 0.5 } });
@@ -19,46 +20,6 @@ function celebrate() {
 		confetti({ particleCount: 100, angle: 60, spread: 70, origin: { x: 0 } });
 		confetti({ particleCount: 100, angle: 120, spread: 70, origin: { x: 1 } });
 	}, 250);
-}
-
-function TouchJoystick({ onMove }) {
-	const active = useRef(false);
-	const origin = useRef({ x: 0, y: 0 });
-
-	const getTouch = (e) => {
-		const t = e.touches[0];
-		const dx = t.clientX - origin.current.x;
-		const dy = t.clientY - origin.current.y;
-		const max = 45;
-		onMove(
-			Math.max(-1, Math.min(1, dx / max)),
-			Math.max(-1, Math.min(1, dy / max))
-		);
-	};
-
-	return (
-		<div
-			className="absolute bottom-8 left-6 w-32 h-32 rounded-full bg-white/15 border-2 border-white/30 backdrop-blur-sm touch-none z-20"
-			onTouchStart={(e) => {
-				active.current = true;
-				const rect = e.currentTarget.getBoundingClientRect();
-				origin.current = {
-					x: rect.left + rect.width / 2,
-					y: rect.top + rect.height / 2,
-				};
-				getTouch(e);
-			}}
-			onTouchMove={(e) => active.current && getTouch(e)}
-			onTouchEnd={() => {
-				active.current = false;
-				onMove(0, 0);
-			}}
-		>
-			<div className="absolute inset-0 flex items-center justify-center text-white/40 text-xs font-bold">
-				🕹️
-			</div>
-		</div>
-	);
 }
 
 export default function AlphabetGame() {
@@ -76,16 +37,21 @@ export default function AlphabetGame() {
 	const targetRef = useRef(null);
 	const playerPosRef = useRef({ x: 0, z: 0 });
 	const voiceOnRef = useRef(true);
+	const gameRef = useRef(null);
+	const isTouch = useIsTouchDevice();
 
 	const current = ALPHABET[letterIndex];
 	const progress = Math.round((learned / ALPHABET.length) * 100);
 	const speechAvailable = isSpeechSupported();
 
-	const say = useCallback((text) => {
-		if (voiceOnRef.current && text) speakUk(text);
+	const say = useCallback(async (text) => {
+		if (voiceOnRef.current && text) {
+			await ensureCached(text);
+			await speakUk(text);
+		}
 	}, []);
 
-	const startRound = useCallback((index) => {
+	const startRound = useCallback(async (index) => {
 		const letter = ALPHABET[index];
 		const type = pickMissionType(index);
 		setMissionType(type);
@@ -94,7 +60,14 @@ export default function AlphabetGame() {
 		setWrongFlash(false);
 
 		const { text } = buildPrompt(letter, type);
-		setTimeout(() => say(text), 400);
+		const next = ALPHABET[index + 1];
+		const preload = [text, buildSuccessMessage(letter), buildWrongMessage(letter)];
+		if (next) {
+			const nextType = pickMissionType(index + 1);
+			preload.push(buildPrompt(next, nextType).text);
+		}
+		preloadSpeech(preload);
+		await say(text);
 	}, [say]);
 
 	useEffect(() => {
@@ -150,28 +123,27 @@ export default function AlphabetGame() {
 	}, []);
 
 	const handleLetterSelect = useCallback(
-		(char) => {
+		async (char) => {
 			if (victory) return;
 
 			if (char === current.char) {
 				setSuccessFlash(true);
 				setLearned((l) => l + 1);
 				celebrate();
-				say(buildSuccessMessage(current));
+				await say(buildSuccessMessage(current));
+				await new Promise((r) => setTimeout(r, 350));
 
-				setTimeout(() => {
-					if (letterIndex >= ALPHABET.length - 1) {
-						setVictory(true);
-						celebrate();
-						say("Ура, Діано! Ти знаєш всю абетку! Молодець!");
-					} else {
-						setLetterIndex((i) => i + 1);
-					}
-				}, 1800);
+				if (letterIndex >= ALPHABET.length - 1) {
+					setVictory(true);
+					celebrate();
+					await say("Ура, Діано! Ти знаєш всю абетку! Молодець!");
+				} else {
+					setLetterIndex((i) => i + 1);
+				}
 			} else {
 				setWrongFlash(true);
-				say(buildWrongMessage(current));
-				setTimeout(() => setWrongFlash(false), 600);
+				await say(buildWrongMessage(current));
+				setWrongFlash(false);
 			}
 		},
 		[current, letterIndex, victory, say]
@@ -202,7 +174,17 @@ export default function AlphabetGame() {
 	};
 
 	const handleStart = async () => {
-		await speakUk("Привіт, Діано! Поїхали вчити абетку!");
+		const greeting = "Привіт, Діано! Поїхали вчити абетку!";
+		const first = ALPHABET[0];
+		const firstType = pickMissionType(0);
+		preloadSpeech([
+			greeting,
+			buildPrompt(first, firstType).text,
+			buildSuccessMessage(first),
+			buildWrongMessage(first),
+		]);
+		await ensureCached(greeting);
+		await speakUk(greeting);
 		setStarted(true);
 	};
 
@@ -210,9 +192,9 @@ export default function AlphabetGame() {
 
 	const handleRepeatVoice = () => {
 		if (successFlash) {
-			say(buildSuccessMessage(current));
+			void say(buildSuccessMessage(current));
 		} else {
-			say(prompt.text);
+			void say(prompt.text);
 		}
 	};
 
@@ -225,6 +207,11 @@ export default function AlphabetGame() {
 					<p className="text-white/80 text-lg">
 						Бігай по острову, шукай букви і слухай завдання вслух!
 					</p>
+					{isTouch && (
+						<p className="text-violet-200 text-sm">
+							🕹️ Зліва внизу — рух, справа внизу — стрибок. Тапай на букви!
+						</p>
+					)}
 					{speechAvailable && (
 						<p className="text-violet-200 text-sm">
 							🔊 Озвучка українською (натисни «Почати» — почуєш голос)
@@ -242,7 +229,7 @@ export default function AlphabetGame() {
 	}
 
 	return (
-		<div className="relative w-full h-[75vh] min-h-[480px] rounded-2xl overflow-hidden border-4 border-violet-400/30 shadow-2xl shadow-violet-500/20">
+		<div ref={gameRef} className="relative w-full h-[75vh] min-h-[480px] rounded-2xl overflow-hidden border-4 border-violet-400/30 shadow-2xl shadow-violet-500/20 touch-none">
 			<AlphabetCanvas
 				inputRef={inputRef}
 				targetRef={targetRef}
@@ -250,7 +237,7 @@ export default function AlphabetGame() {
 				letterBlocks={letterBlocks}
 				targetChar={current.char}
 				onLetterSelect={handleLetterSelect}
-				onGroundClick={handleGroundClick}
+				onGroundClick={isTouch ? undefined : handleGroundClick}
 				showVictory={victory || successFlash}
 			/>
 
@@ -265,15 +252,24 @@ export default function AlphabetGame() {
 					</div>
 					<div className="flex items-start gap-2">
 						{speechAvailable && (
-							<button
-								onClick={() => setVoiceOn((v) => !v)}
-								className={`w-11 h-11 rounded-2xl border-2 border-white/30 text-lg backdrop-blur-md active:scale-95 transition-all ${
-									voiceOn ? "bg-violet-600/80" : "bg-black/50 opacity-60"
-								}`}
-								title={voiceOn ? "Вимкнути озвучку" : "Увімкнути озвучку"}
-							>
-								{voiceOn ? "🔊" : "🔇"}
-							</button>
+							<>
+								<button
+									onClick={handleRepeatVoice}
+									className="w-11 h-11 rounded-2xl border-2 border-white/30 text-lg backdrop-blur-md bg-black/50 active:scale-95 transition-all"
+									title="Повторити озвучку"
+								>
+									🔊
+								</button>
+								<button
+									onClick={() => setVoiceOn((v) => !v)}
+									className={`w-11 h-11 rounded-2xl border-2 border-white/30 text-lg backdrop-blur-md active:scale-95 transition-all ${
+										voiceOn ? "bg-violet-600/80" : "bg-black/50 opacity-60"
+									}`}
+									title={voiceOn ? "Вимкнути озвучку" : "Увімкнути озвучку"}
+								>
+									{voiceOn ? "🎙️" : "🔇"}
+								</button>
+							</>
 						)}
 						<div className="bg-black/40 backdrop-blur-md rounded-2xl px-4 py-2 border border-white/20 text-right pointer-events-none">
 							<div className="text-xs text-white/70">Вивчено</div>
@@ -317,7 +313,7 @@ export default function AlphabetGame() {
 			</div>
 
 			{/* Алфавіт-шпаргалка */}
-			<div className="absolute bottom-24 left-3 right-3 z-10 pointer-events-none">
+			<div className={`absolute left-3 right-3 z-10 pointer-events-none ${isTouch ? "bottom-28" : "bottom-24"}`}>
 				<div className="flex flex-wrap justify-center gap-1 opacity-80">
 					{ALPHABET.map((a, i) => (
 						<span
@@ -336,21 +332,25 @@ export default function AlphabetGame() {
 				</div>
 			</div>
 
-			<TouchJoystick onMove={handleJoystick} />
+			<MobileGamepad containerRef={gameRef} onMove={handleJoystick} onJump={handleJump} />
 
-			<button
-				onClick={handleRepeatVoice}
-				className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 px-5 py-2 rounded-full bg-black/50 border border-white/30 text-white font-bold text-sm backdrop-blur-md active:scale-95 transition-transform"
-			>
-				🔊 Повторити
-			</button>
+			{!isTouch && (
+				<button
+					onClick={handleRepeatVoice}
+					className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 px-5 py-2 rounded-full bg-black/50 border border-white/30 text-white font-bold text-sm backdrop-blur-md active:scale-95 transition-transform"
+				>
+					🔊 Повторити
+				</button>
+			)}
 
-			<button
-				onClick={handleJump}
-				className="absolute bottom-8 right-6 w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-pink-600 border-2 border-white/30 text-white text-2xl font-black shadow-lg active:scale-90 transition-transform z-20"
-			>
-				⬆️
-			</button>
+			{!isTouch && (
+				<button
+					onClick={handleJump}
+					className="absolute bottom-8 right-6 w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-pink-600 border-2 border-white/30 text-white text-2xl font-black shadow-lg active:scale-90 transition-transform z-20"
+				>
+					⬆️
+				</button>
+			)}
 
 			{victory && (
 				<div className="absolute inset-0 z-30 flex items-center justify-center bg-black/50 backdrop-blur-sm">
